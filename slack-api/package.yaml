@@ -1,0 +1,17 @@
+name: slack-api
+version: 0.0.1
+build-type: Simple
+author: dpmesko
+maintainer: dpmesko@gmail.com
+synopsis: An incomplete Haskell SDK for the Slack API
+category: API Wrappers
+
+dependencies:
+  - base >= 4 && < 5
+
+library:
+  source-dirs: src/
+  ghc-options: -Wall -O2
+  dependencies:
+  - aeson
+  - bytestring

@@ -1,0 +1,21 @@
+name: llamabot-core
+version: 0.0.1
+build-type: Simple
+author: dpmesko
+maintainer: dpmesko@gmail.com
+synopsis: A slackbot that lets you praise others, in Haskell
+category: SlackBots
+
+dependencies:
+  - base >= 4 && < 5
+
+ghc-options: -Wall -Werror
+
+executables:
+  llamabot:
+    source-dirs: src/
+    main: Main.hs
+    other-modules: []
+    dependencies:
+    - aeson
+    - bytestring

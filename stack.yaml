@@ -1,0 +1,26 @@
+resolver:
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/19/15.yaml
+
+packages:
+  - slack-api
+  - llamabot-core
+
+
+# extra-deps: []
+
+# flags: {}
+
+# extra-package-dbs: []
+
+# system-ghc: true
+#
+# require-stack-version: -any # Default
+# require-stack-version: ">=2.7"
+#
+# arch: i386
+# arch: x86_64
+#
+# extra-include-dirs: [/path/to/dir]
+# extra-lib-dirs: [/path/to/dir]
+#
+# compiler-check: newer-minor
