@@ -19,3 +19,9 @@ executables:
     dependencies:
     - aeson
     - bytestring
+    - case-insensitive
+    - http-types
+    - servant-server
+    - text
+    - wai
+    - warp
