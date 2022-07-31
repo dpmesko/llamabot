@@ -9,7 +9,8 @@ import           Data.Aeson
 -- import qualified Data.ByteString              as B
 import qualified Data.ByteString.Char8        as C
 import qualified Data.ByteString.Lazy         as BL
-import           Data.Text
+-- import           Data.Maybe
+import           Data.Text                    as T
 import           Network.HTTP.Types.Header
 import           Network.HTTP.Types.Status
 import           Network.Wai
@@ -50,35 +51,125 @@ app = Proxy
 -}
 
 
+data CallbackType = URLVerification | EventCallback deriving (Show, Eq)
 
-data Handshake = Handshake
-  { token :: Text
-  , challenge :: Text
-  , typ :: Text
+data Authorization = Authorization
+  { aEnterpriseId :: Maybe Text
+  , aTeamId :: Text
+  , aUserId :: Text
+  , aIsBot :: Bool
   } deriving (Show, Eq)
 
-instance FromJSON Handshake where
+
+data Event = Event
+  { typ :: Text
+  , text :: Maybe Text
+  , eventTimestamp :: Text
+  , user :: Text
+  , ts :: Text
+  , item :: Maybe Text
+  } deriving (Show, Eq)
+
+
+data Message =
+    Handshake 
+      { token :: Text
+      , challenge :: Text
+      , htyp :: CallbackType
+      }
+  | EventDetails
+      { token :: Text
+      , teamId :: Text
+      , apiAppId :: Text
+      , event :: Event
+      , etyp :: CallbackType
+      , authedUsers :: Maybe Text
+      , authedTeams :: Maybe Text
+      , authorizations :: [Authorization]
+      , eventContext :: Text
+      , eventId :: Text
+      , eventTime :: Integer
+      } deriving (Show, Eq)
+
+
+instance FromJSON CallbackType where
+  parseJSON (String str) = case str of
+      "url_verification" -> return URLVerification
+      "event_callback" -> return EventCallback
+      x -> error $ "unknown callback type: " ++ show x
+  parseJSON x = error $ "unknown callback type: " ++ show x
+
+
+instance FromJSON Authorization where
   parseJSON (Object o) = do
-    to <- o .: "token"
-    ch <- o .: "challenge"
+    ei <- o .:? "enterprise_id"
+    ti <- o .: "team_id"
+    ui <- o .: "user_id"
+    ib <- o .: "is_bot"
+    return $ Authorization ei ti ui ib
+  parseJSON x = error $ "unknown authorizations type: " ++ show x
+     
+instance FromJSON Event where
+  parseJSON (Object o) = do
     tp <- o .: "type"
-    return $ Handshake to ch tp
-  parseJSON o = error $ "parseJSON for handshake received " ++ show o
+    tx <- o .:? "text"
+    es <- o .: "event_ts"
+    us <- o .: "user"
+    ts <- o .: "ts"
+    it <- o .:? "item"
+    return $ Event tp tx es us ts it
+  parseJSON x = error $ "unknown event type: " ++ show x
 
-app2 :: Request -> (Response -> IO ResponseReceived) -> IO ResponseReceived
-app2 req responder = do 
-  putStrLn " fuck"
+instance FromJSON Message where
+  parseJSON (Object o) = do
+    tp <- o .: "type"
+    case tp of
+      URLVerification -> do
+        to <- o .: "token"
+        ch <- o .: "challenge"
+        return $ Handshake to ch tp
+      EventCallback -> do
+        to <- o .: "token"
+        ti <- o .: "team_id"
+        ai <- o .: "api_app_id"
+        ev <- o .: "event"
+        au <- o .:? "authed_users"
+        at <- o .:? "authed_teams"
+        as <- o .: "authorizations"
+        ec <- o .: "event_context"
+        ei <- o .: "event_id"
+        et <- o .: "event_time"
+        return $ EventDetails to ti ai ev tp au at as ec ei et
+  parseJSON x = error $ "unknown message type " ++ show x
+
+
+app :: Request -> (Response -> IO ResponseReceived) -> IO ResponseReceived
+app req responder = do 
   body <- strictRequestBody req
-  let c = maybe ("ERROR parsing") (challenge) (decode body)
-  putStrLn $ "what is the request body?? " ++ (show body)
-  putStrLn $ "what is C?? " ++ (show c)
-  (responder $ responseLBS status200 [(hContentType, "text/plain")] (BL.fromStrict $ C.pack $ show c))
+  let msg' = eitherDecode body
+  case msg' of
+    Left str -> error str
+    Right msg -> do
+      case msg of
+        Handshake _ ch _ -> do 
+          putStrLn $ "got a handshake, responding with the challenge: " ++ show ch
+          responder $ responseLBS status200 [(hContentType, "text/plain")] (BL.fromStrict $ C.pack $ show ch)
+        ev@(EventDetails _ _ _ _ _ _ _ _ _ _ _) -> do 
+          putStrLn $ "got some event details: " ++ show ev
+          putStrLn $ "  ======== NUMBER OF LLAMAS: " ++ (show $ countLlamas $ event ev)
+          responder $ responseLBS status200 [] BL.empty
 
+
+countLlamas :: Event -> Int
+countLlamas Event{..} =
+  case text of
+    Nothing -> 0
+    Just t -> Prelude.length $ T.breakOnAll ":llama:" t
 
 main :: IO ()
 main = do
   putStrLn "listening on 8081"
-  run 8081 app2
+  run 8081 app
   -- run 8081 (serve app server)
 
 
