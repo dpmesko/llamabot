@@ -20,6 +20,9 @@ executables:
     - aeson
     - bytestring
     - case-insensitive
+    - hflags
+    - http-client
+    - http-client-tls
     - http-types
     - servant-server
     - text

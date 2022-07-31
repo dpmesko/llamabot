@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeOperators      #-}
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE TemplateHaskell    #-}
 
 -- import           Control.Exception            hiding (Handler)
 -- import           Control.Monad.IO.Class
@@ -11,9 +12,12 @@ import qualified Data.ByteString.Char8        as C
 import qualified Data.ByteString.Lazy         as BL
 -- import           Data.Maybe
 import           Data.Text                    as T
+import           HFlags
+import           Network.HTTP.Client          as NC
+import qualified Network.HTTP.Client.TLS      as TLS
 import           Network.HTTP.Types.Header
 import           Network.HTTP.Types.Status
-import           Network.Wai
+import           Network.Wai                  as W
 import           Network.Wai.Handler.Warp
 -- import           Servant
 
@@ -51,6 +55,13 @@ app = Proxy
 -}
 
 
+
+defineFlag "token" ("" :: String) "Token for sending requests to slack"
+$(return [])
+
+
+
+--------------------------------- EVENTS API --------------------------------
 data CallbackType = URLVerification | EventCallback deriving (Show, Eq)
 
 data Authorization = Authorization
@@ -143,7 +154,22 @@ instance FromJSON Message where
   parseJSON x = error $ "unknown message type " ++ show x
 
 
-app :: Request -> (Response -> IO ResponseReceived) -> IO ResponseReceived
+
+------------------------------ MESSAGE ENDPOINTS ------------------------------
+
+data PostMessage = PostMessage
+  { pmChannel :: Text
+  , pmText :: Text
+  } deriving (Eq, Show)
+
+
+instance ToJSON PostMessage where
+  toJSON (PostMessage c t) = object
+    [ "channel" .= c
+    , "text" .= t
+    ]
+
+app :: W.Request -> (W.Response -> IO ResponseReceived) -> IO ResponseReceived
 app req responder = do 
   body <- strictRequestBody req
   let msg' = eitherDecode body
@@ -156,9 +182,42 @@ app req responder = do
           responder $ responseLBS status200 [(hContentType, "text/plain")] (BL.fromStrict $ C.pack $ show ch)
         ev@(EventDetails _ _ _ _ _ _ _ _ _ _ _) -> do 
           putStrLn $ "got some event details: " ++ show ev
-          putStrLn $ "  ======== NUMBER OF LLAMAS: " ++ (show $ countLlamas $ event ev)
+          let llamaTotal = countLlamas $ event ev
+          putStrLn $ "  ======== NUMBER OF LLAMAS: " ++ (show llamaTotal)
+          
+          -- TODO: we should respond 200 before processing the llamas and sending the response, so
+          --        we need to figure out whether to multithread or how to send the 200 from the app
+          --        handler and then run extra IO code
+          
+          -- the message reply
+         
+          sendLlamaResponse "CL9G1JP6U" "john" "bob" llamaTotal
+          -- the 200 response
+          putStrLn $ "responding now"
           responder $ responseLBS status200 [] BL.empty
 
+
+
+sendLlamaResponse :: Text -> Text -> Text -> Int -> IO ()
+sendLlamaResponse channel sender receiver number = do
+  manager <- TLS.newTlsManager
+  initRequest <- parseRequest "https://slack.com/api/chat.postMessage"
+  let msg = PostMessage
+              channel
+              (T.pack $ "Thanks " ++ (show sender) ++ "! You sent " ++ (show receiver) ++ " " ++ (show number) ++ " llamas!")
+
+
+      request = initRequest 
+                { method = "POST"
+                , NC.requestBody = RequestBodyLBS $ encode msg
+                , NC.requestHeaders = 
+                    [ (hAuthorization, (C.pack $ "Bearer " ++ flags_token))
+                    , (hContentType, (C.pack "application/json"))
+                    ]
+                }
+
+  response <- httpLbs request manager
+  putStrLn $ show response
 
 countLlamas :: Event -> Int
 countLlamas Event{..} =
@@ -166,8 +225,17 @@ countLlamas Event{..} =
     Nothing -> 0
     Just t -> Prelude.length $ T.breakOnAll ":llama:" t
 
+
+
+
+
+
 main :: IO ()
 main = do
+  _ <- $initHFlags "Lllamabot server v0.1"
+  
+  putStrLn $ "OAUTH FLAG: " ++ (show $ flags_token)
+
   putStrLn "listening on 8081"
   run 8081 app
   -- run 8081 (serve app server)
