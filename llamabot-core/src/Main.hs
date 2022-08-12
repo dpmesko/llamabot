@@ -6,6 +6,7 @@
 
 -- import           Control.Exception            hiding (Handler)
 -- import           Control.Monad.IO.Class
+import           Control.Monad
 import           Data.Aeson
 -- import qualified Data.ByteString              as B
 import qualified Data.ByteString.Char8        as C
@@ -22,6 +23,7 @@ import           Network.Wai.Handler.Warp
 -- import           Servant
 
 
+import           Slack
 
 {-
 type EventsListener = "event" 
@@ -61,114 +63,8 @@ $(return [])
 
 
 
---------------------------------- EVENTS API --------------------------------
-data CallbackType = URLVerification | EventCallback deriving (Show, Eq)
 
-data Authorization = Authorization
-  { aEnterpriseId :: Maybe Text
-  , aTeamId :: Text
-  , aUserId :: Text
-  , aIsBot :: Bool
-  } deriving (Show, Eq)
-
-
-data Event = Event
-  { typ :: Text
-  , text :: Maybe Text
-  , eventTimestamp :: Text
-  , user :: Text
-  , ts :: Text
-  , item :: Maybe Text
-  } deriving (Show, Eq)
-
-
-data Message =
-    Handshake 
-      { token :: Text
-      , challenge :: Text
-      , htyp :: CallbackType
-      }
-  | EventDetails
-      { token :: Text
-      , teamId :: Text
-      , apiAppId :: Text
-      , event :: Event
-      , etyp :: CallbackType
-      , authedUsers :: Maybe Text
-      , authedTeams :: Maybe Text
-      , authorizations :: [Authorization]
-      , eventContext :: Text
-      , eventId :: Text
-      , eventTime :: Integer
-      } deriving (Show, Eq)
-
-
-instance FromJSON CallbackType where
-  parseJSON (String str) = case str of
-      "url_verification" -> return URLVerification
-      "event_callback" -> return EventCallback
-      x -> error $ "unknown callback type: " ++ show x
-  parseJSON x = error $ "unknown callback type: " ++ show x
-
-
-instance FromJSON Authorization where
-  parseJSON (Object o) = do
-    ei <- o .:? "enterprise_id"
-    ti <- o .: "team_id"
-    ui <- o .: "user_id"
-    ib <- o .: "is_bot"
-    return $ Authorization ei ti ui ib
-  parseJSON x = error $ "unknown authorizations type: " ++ show x
-     
-instance FromJSON Event where
-  parseJSON (Object o) = do
-    tp <- o .: "type"
-    tx <- o .:? "text"
-    es <- o .: "event_ts"
-    us <- o .: "user"
-    ts <- o .: "ts"
-    it <- o .:? "item"
-    return $ Event tp tx es us ts it
-  parseJSON x = error $ "unknown event type: " ++ show x
-
-instance FromJSON Message where
-  parseJSON (Object o) = do
-    tp <- o .: "type"
-    case tp of
-      URLVerification -> do
-        to <- o .: "token"
-        ch <- o .: "challenge"
-        return $ Handshake to ch tp
-      EventCallback -> do
-        to <- o .: "token"
-        ti <- o .: "team_id"
-        ai <- o .: "api_app_id"
-        ev <- o .: "event"
-        au <- o .:? "authed_users"
-        at <- o .:? "authed_teams"
-        as <- o .: "authorizations"
-        ec <- o .: "event_context"
-        ei <- o .: "event_id"
-        et <- o .: "event_time"
-        return $ EventDetails to ti ai ev tp au at as ec ei et
-  parseJSON x = error $ "unknown message type " ++ show x
-
-
-
------------------------------- MESSAGE ENDPOINTS ------------------------------
-
-data PostMessage = PostMessage
-  { pmChannel :: Text
-  , pmText :: Text
-  } deriving (Eq, Show)
-
-
-instance ToJSON PostMessage where
-  toJSON (PostMessage c t) = object
-    [ "channel" .= c
-    , "text" .= t
-    ]
-
+------------------------------- APP LOGIC ---------------------------------
 app :: W.Request -> (W.Response -> IO ResponseReceived) -> IO ResponseReceived
 app req responder = do 
   body <- strictRequestBody req
@@ -180,32 +76,35 @@ app req responder = do
         Handshake _ ch _ -> do 
           putStrLn $ "got a handshake, responding with the challenge: " ++ show ch
           responder $ responseLBS status200 [(hContentType, "text/plain")] (BL.fromStrict $ C.pack $ show ch)
-        ev@(EventDetails _ _ _ _ _ _ _ _ _ _ _) -> do 
-          putStrLn $ "got some event details: " ++ show ev
-          let llamaTotal = countLlamas $ event ev
-          putStrLn $ "  ======== NUMBER OF LLAMAS: " ++ (show llamaTotal)
+        ed@(EventDetails _ _ _ ev _ _ _ _ _ _ _) -> do 
+          putStrLn $ "got some event details: " ++ show ed
           
           -- TODO: we should respond 200 before processing the llamas and sending the response, so
           --        we need to figure out whether to multithread or how to send the 200 from the app
           --        handler and then run extra IO code
           
           -- the message reply
-         
-          sendLlamaResponse "CL9G1JP6U" "john" "bob" llamaTotal
+          when (hasLlamasAndTag ev) $ do
+            let (llamaTotal, recipient) = parseLlamaPost $ text ev
+            sendLlamaResponse "CL9G1JP6U" (user ev) recipient (ts ev) llamaTotal
+          
           -- the 200 response
-          putStrLn $ "responding now"
           responder $ responseLBS status200 [] BL.empty
 
-
-
-sendLlamaResponse :: Text -> Text -> Text -> Int -> IO ()
-sendLlamaResponse channel sender receiver number = do
+sendLlamaResponse :: Text -> Text -> Text -> Text -> Int -> IO ()
+-- sendLlamaResponse channel sender receiver thread number = do
+sendLlamaResponse channel _ _ _ _ = do
   manager <- TLS.newTlsManager
   initRequest <- parseRequest "https://slack.com/api/chat.postMessage"
-  let msg = PostMessage
+  let msgBlocks = 
+        [ Block Header (BlockText (TextBlock "plain_text" False "Hello!"))
+        , Block Actions (BlockElements [Element Button (ButtonBody (TextBlock "plain_text" False "CLICK ME!") "primary" "12345")])
+        ]
+      msg = PostMessage
               channel
-              (T.pack $ "Thanks " ++ (show sender) ++ "! You sent " ++ (show receiver) ++ " " ++ (show number) ++ " llamas!")
-
+              Nothing -- (T.pack $ "Thanks " ++ (T.unpack $ "<@" <> sender <> ">") ++ "! You sent " ++ (T.unpack receiver) ++ "> " ++ (show number) ++ " llamas!")
+              Nothing -- (Just thread)
+              (Just msgBlocks)
 
       request = initRequest 
                 { method = "POST"
@@ -217,7 +116,28 @@ sendLlamaResponse channel sender receiver number = do
                 }
 
   response <- httpLbs request manager
-  putStrLn $ show response
+  putStrLn $ "sent a response to llamas - the status code was " ++ (C.unpack $ BL.toStrict $ NC.responseBody response)
+
+
+
+parseLlamaPost :: Maybe Text -> (Int, Text)
+parseLlamaPost Nothing = (0, "")
+parseLlamaPost (Just t) = 
+  let llamaTotal = Prelude.length $ T.breakOnAll ":llama:" t
+      recipient =
+        let prstr = snd $ Prelude.head $ T.breakOnAll "<@" t
+        in fst $ Prelude.head $ T.breakOnAll ">" prstr
+  in (llamaTotal, recipient)
+
+hasLlamasAndTag :: Event -> Bool
+hasLlamasAndTag ev = (countLlamas ev > 0) && (countTags ev == 1)
+
+countTags :: Event -> Int
+countTags Event{..} = 
+  case text of
+    Nothing -> 0
+    Just t -> Prelude.length $ T.breakOnAll "<@" t
+
 
 countLlamas :: Event -> Int
 countLlamas Event{..} =

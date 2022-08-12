@@ -25,6 +25,7 @@ executables:
     - http-client-tls
     - http-types
     - servant-server
+    - slack-api
     - text
     - wai
     - warp
