@@ -21,6 +21,7 @@ executables:
     - bytestring
     - case-insensitive
     - hflags
+    - http-api-data
     - http-client
     - http-client-tls
     - http-types

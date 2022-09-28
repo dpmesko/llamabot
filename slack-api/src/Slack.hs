@@ -1,7 +1,11 @@
 module Slack (
   module Slack.Events,
-  module Slack.Message
+  module Slack.PostMessage,
+  module Slack.Interactions,
+  module Slack.SlashCommands
 ) where
 
 import Slack.Events
-import Slack.Message
+import Slack.PostMessage
+import Slack.Interactions
+import Slack.SlashCommands

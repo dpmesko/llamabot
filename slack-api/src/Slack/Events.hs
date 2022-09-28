@@ -28,38 +28,6 @@ import           Data.Text                    as T
 
 
 
-{-
-type EventsListener = "event" 
-                    :> ReqBody '[JSON] EventPayload
-                    :> Post '[JSON] NoContent
-
-
-data EventPayload = EventPayload
-  { status :: Text
-  }
-
-instance ToJSON EventPayload where
-  toJSON (EventPayload s) = String s
-
-
-instance FromJSON EventPayload where
-  parseJSON (String s) = return $ EventPayload s
-  parseJSON o = error $ "you shouldn't send this thing to this endpoint " ++ show o
-
-
-
-server :: Server EventsListener
-server = event
-  where event :: EventPayload -> Handler NoContent
-        event EventPayload{..} = do 
-          liftIO $ putStrLn $ "guess what event is ???? " ++ (show status)
-          return NoContent
-
-app :: Proxy EventsListener
-app = Proxy
--}
-
-
 
 
 

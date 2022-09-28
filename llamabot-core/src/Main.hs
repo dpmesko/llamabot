@@ -11,6 +11,7 @@ import           Data.Aeson
 -- import qualified Data.ByteString              as B
 import qualified Data.ByteString.Char8        as C
 import qualified Data.ByteString.Lazy         as BL
+-- import           Data.Coerce
 -- import           Data.Maybe
 import           Data.Text                    as T
 import           HFlags
@@ -21,6 +22,7 @@ import           Network.HTTP.Types.Status
 import           Network.Wai                  as W
 import           Network.Wai.Handler.Warp
 -- import           Servant
+import           Web.FormUrlEncoded
 
 
 import           Slack
@@ -65,12 +67,55 @@ $(return [])
 
 
 ------------------------------- APP LOGIC ---------------------------------
+
+
+data IRForm = IRForm String deriving (Eq, Show)
+
+instance FromForm IRForm where
+  fromForm f = IRForm
+    <$> parseUnique "payload" f
+
+
+decodeInteractionResponse :: BL.ByteString -> Either String InteractionResponse
+--decodeInteractionResponse = eitherDecode =<< (BL.fromStrict . C.pack . coerce) =<< urlDecodeAsForm
+decodeInteractionResponse b = 
+  case (urlDecodeAsForm b) of
+    Left str -> Left $ T.unpack str
+    Right (IRForm st) -> 
+        let mIr' = eitherDecode (BL.fromStrict $ C.pack st)
+        in case mIr' of
+            (Left err) -> Left err
+            Right ir -> Right ir
+
+
 app :: W.Request -> (W.Response -> IO ResponseReceived) -> IO ResponseReceived
 app req responder = do 
   body <- strictRequestBody req
   let msg' = eitherDecode body
   case msg' of
-    Left str -> error str
+    Left _ -> do
+      let mIr = decodeInteractionResponse body
+      case mIr of
+        Left str -> error $ show str
+        Right (InteractionResponse _ u _ _ as) -> do
+         putStrLn $ " got an interaction response!!!! looks like " ++ (show $ uUsername u) ++ " clicked button val " ++ (show $ aValue $ Prelude.head as)
+         manager <- TLS.newTlsManager
+         initRequest <- parseRequest "https://slack.com/api/chat.postMessage"
+         let msg = PostMessage
+                     "CL9G1JP6U"
+                     (Just $ T.pack $ (show $ uUsername u) ++ " clicked " ++ (show $ aValue $ Prelude.head as))
+                     Nothing
+                     Nothing
+             request = initRequest
+                       { method = "POST"
+                       , NC.requestBody = RequestBodyLBS $ encode msg
+                       , NC.requestHeaders =
+                           [ (hAuthorization, (C.pack $ "Bearer " ++ flags_token))
+                           , (hContentType, (C.pack "application/json"))
+                           ]
+                       }
+         _ <- httpLbs request manager
+         responder $ responseLBS status200 [] BL.empty
     Right msg -> do
       case msg of
         Handshake _ ch _ -> do 
@@ -91,14 +136,18 @@ app req responder = do
           -- the 200 response
           responder $ responseLBS status200 [] BL.empty
 
+
 sendLlamaResponse :: Text -> Text -> Text -> Text -> Int -> IO ()
 -- sendLlamaResponse channel sender receiver thread number = do
 sendLlamaResponse channel _ _ _ _ = do
   manager <- TLS.newTlsManager
   initRequest <- parseRequest "https://slack.com/api/chat.postMessage"
   let msgBlocks = 
-        [ Block Header (BlockText (TextBlock "plain_text" False "Hello!"))
-        , Block Actions (BlockElements [Element Button (ButtonBody (TextBlock "plain_text" False "CLICK ME!") "primary" "12345")])
+        [ BlockText (TextBlock "plain_text" False "Hello!")
+        , BlockElements
+            [ ButtonBody (TextBlock "plain_text" False "CLICK ME!") "primary" "left button"
+            , ButtonBody (TextBlock "plain_text" False "No, CLICK ME!!!") "danger" "right button"
+            ]
         ]
       msg = PostMessage
               channel

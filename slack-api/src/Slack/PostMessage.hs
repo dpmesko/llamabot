@@ -4,16 +4,14 @@
 {-# LANGUAGE RecordWildCards    #-}
 {-# LANGUAGE TemplateHaskell    #-}
 
-module Slack.Message(
+module Slack.PostMessage(
     PostMessage(..),
     PostReaction(..),
     Block(..),
     BlockType(..),
-    BlockBody(..),
     TextBlock(..),
     Element(..),
     ElementType(..),
-    ElementBody(..),
     Field(..)
   ) where
 
@@ -32,8 +30,7 @@ import           Data.Text                    as T
 
 
 
------------------------------------------------------------
------------------------- TYPES ---------------------------
+------------------------ FIELDS ---------------------------
 data Field = Field
   { fType :: Text
   , fText :: Text
@@ -49,13 +46,7 @@ instance ToJSON Field where
 
 --------------------- ELEMENTS ----------------------------
 data ElementType = Button | DatePicker deriving (Eq, Show)
-
-data Element = Element
-  { elementType :: ElementType
-  , elementBody :: ElementBody
-  } deriving (Eq, Show)
-
-data ElementBody = 
+data Element = 
     ButtonBody
       { bbText :: TextBlock
       , bbStyle :: Text
@@ -74,7 +65,6 @@ data Placeholder = Placeholder
 
 
 
-
 instance ToJSON Placeholder where
   toJSON (Placeholder ty te) = object
     [ "type" .= ty
@@ -82,13 +72,13 @@ instance ToJSON Placeholder where
     ]
 
 instance ToJSON Element where
-  toJSON (Element Button (ButtonBody t s v)) = object
+  toJSON (ButtonBody t s v) = object
     [ "type" .= String "button"
     , "text" .= t
     , "style" .= s
     , "value" .= v
     ]
-  toJSON (Element DatePicker (DatePickerBody a i p)) = object
+  toJSON (DatePickerBody a i p) = object
     [ "type" .= String "datepicker"
     , "action_id" .= a
     , "initial_date" .= i
@@ -106,17 +96,11 @@ data TextBlock = TextBlock
 
 
 data BlockType = Header | Section | Actions deriving (Eq, Show)
-data BlockBody = 
+data Block = 
     BlockText TextBlock
   | BlockFields [Field]
-  | BlockElements [Element] deriving (Eq, Show)
-
-
-data Block = Block
-  { blockType :: BlockType
-  , blockBody :: BlockBody
-  } deriving (Eq, Show)
-
+  | BlockElements [Element]
+  deriving (Eq, Show)
 
 
 
@@ -128,15 +112,15 @@ instance ToJSON TextBlock where
     ]
 
 instance ToJSON Block where
-  toJSON (Block (Header) (BlockText tb)) = object
+  toJSON (BlockText tb) = object
     [ "type" .= String "header"
     , "text" .= tb
     ]
-  toJSON (Block (Section) (BlockFields fd)) = object
+  toJSON (BlockFields fd) = object
     [ "type" .= String "section"
     , "fields" .= fd
     ]
-  toJSON (Block (Actions) (BlockElements be)) = object
+  toJSON (BlockElements be) = object
     [ "type" .= String "actions"
     , "elements" .= be
     ]
@@ -144,7 +128,7 @@ instance ToJSON Block where
 
 
 
-------------------- the WHOLE message -------------
+------------------- the WHOLE Message -------------
 data PostMessage = PostMessage
   { pmChannel :: Text
   , pmText :: Maybe Text
