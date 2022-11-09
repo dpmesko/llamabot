@@ -25,6 +25,7 @@ executables:
     - http-client
     - http-client-tls
     - http-types
+    - mtl
     - servant-server
     - slack-api
     - text
