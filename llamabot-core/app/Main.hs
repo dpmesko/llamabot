@@ -126,8 +126,8 @@ app contextT req responder = do
           responder $ responseLBS status200 [] BL.empty
 
 
-sendLlamaResponse :: LlamaContextT -> Text -> Text -> Text -> Text -> Int -> IO ()
-sendLlamaResponse contextT channel sender recipient thread number = do
+sendLlamaResponse :: LlamaContextT -> Text -> Text -> Text -> Text -> Integer -> IO ()
+sendLlamaResponse contextT channel sender recipient _ number = do -- thread is the missing one
   manager <- TLS.newTlsManager
   initRequest <- parseRequest "https://slack.com/api/chat.postMessage"
   -- let msgBlocks = 
@@ -148,15 +148,15 @@ sendLlamaResponse contextT channel sender recipient thread number = do
         , pmChannelID = channel
         , pmTotal = number
         }
-      messages = (leMessages context) ++ [pm]
+      messages = (lcMessages context) ++ [pm]
       
       -- update the user data
-      recipientData = case M.lookup (lcUsers context) recipient of
+      recipientData = case M.lookup recipient (lcUsers context) of
                         Nothing -> ActiveUser recipient 0 number number
-                        Just (ActiveUser r st rw ra) -> ActiveUser r st (rw ++ number) (ra ++ number)
-      senderData = case M.lookup (lcUsers context) sender of
+                        Just (ActiveUser r st rw ra) -> ActiveUser r st (rw + number) (ra + number)
+      senderData = case M.lookup sender (lcUsers context) of
                         Nothing -> ActiveUser sender number 0 0
-                        Just (ActiveUser r st rw ra) -> ActiveUser r (st ++ number) rw ra
+                        Just (ActiveUser r st rw ra) -> ActiveUser r (st + number) rw ra
  
       userMap' = M.insert recipient recipientData (lcUsers context)
       userMap = M.insert sender senderData userMap'
@@ -167,15 +167,15 @@ sendLlamaResponse contextT channel sender recipient thread number = do
 
   let msg = PostMessage
               channel
-              (Just $ T.pack $ "Thanks " ++ (T.unpack $ "<@" <> sender <> ">") ++ "! You sent " ++ (T.unpack recipient) ++ "> " ++ (show number) ++ " llamas! You have sent " ++ (T.unpack $ auLlamasSentToday senderData) ++ " llamas today.  " ++ (T.unpack recipient) ++ "> has received " ++ (T.unpack $ auLlamasReceived recipientData) ++ " in their lifetime.")
-              (Just thread)
+              (Just $ T.pack $ "Thanks " ++ (T.unpack $ "<@" <> sender <> ">") ++ "! You sent " ++ (T.unpack recipient) ++ "> " ++ (show number) ++ " llamas! You have sent " ++ (show $ auLlamasSentToday senderData) ++ " llamas today.  " ++ (T.unpack recipient) ++ "> has received " ++ (show $ auLlamasReceived recipientData) ++ " in their lifetime.")
+              Nothing -- (Just thread)
               Nothing -- (Just msgBlocks)
 
       request = initRequest 
                 { method = "POST"
                 , NC.requestBody = RequestBodyLBS $ encode msg
                 , NC.requestHeaders = 
-                    [ (hAuthorization, (C.pack $ "Bearer " ++ (lcToken context)))
+                    [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack $ lcToken context)))
                     , (hContentType, (C.pack "application/json"))
                     ]
                 }
@@ -186,10 +186,10 @@ sendLlamaResponse contextT channel sender recipient thread number = do
 
 
 
-parseLlamaPost :: Maybe Text -> (Int, Text)
+parseLlamaPost :: Maybe Text -> (Integer, Text)
 parseLlamaPost Nothing = (0, "")
 parseLlamaPost (Just t) = 
-  let llamaTotal = Prelude.length $ T.breakOnAll ":llama:" t
+  let llamaTotal = toInteger $ Prelude.length $ T.breakOnAll ":llama:" t
       recipient =
         let prstr = snd $ Prelude.head $ T.breakOnAll "<@" t
         in fst $ Prelude.head $ T.breakOnAll ">" prstr
@@ -198,18 +198,18 @@ parseLlamaPost (Just t) =
 hasLlamasAndTag :: Event -> Bool
 hasLlamasAndTag ev = (countLlamas ev > 0) && (countTags ev == 1)
 
-countTags :: Event -> Int
+countTags :: Event -> Integer
 countTags Event{..} = 
   case text of
     Nothing -> 0
-    Just t -> Prelude.length $ T.breakOnAll "<@" t
+    Just t -> toInteger $ Prelude.length $ T.breakOnAll "<@" t
 
 
-countLlamas :: Event -> Int
+countLlamas :: Event -> Integer
 countLlamas Event{..} =
   case text of
     Nothing -> 0
-    Just t -> Prelude.length $ T.breakOnAll ":llama:" t
+    Just t -> toInteger $ Prelude.length $ T.breakOnAll ":llama:" t
 
 
 
@@ -250,7 +250,7 @@ main = do
 --  killThread tid
   
 
-  llamaT <- atomically $ initializeLlamaTVar flags_token
+  llamaT <- atomically $ initializeLlamaTVar (T.pack flags_token)
 
   run 8081 (app llamaT)
 
