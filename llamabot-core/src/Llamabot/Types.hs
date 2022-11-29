@@ -4,52 +4,71 @@
 {-# LANGUAGE RecordWildCards    #-}
 {-# LANGUAGE TemplateHaskell    #-}
 
-import           Control.Monad.IO.Class
-import           Control.Monad
-import           Control.Monad.State.Lazy
+
+module Llamabot.Types (
+  LlamaContextT,
+  LlamaContext(..),
+  ActiveChannel(..),
+  ProcessedMessage(..),
+  ActiveUser(..),
+  initializeLlamaTVar,
+  ) where
+
+-- import           Control.Monad.IO.Class
+-- import           Control.Monad
+-- import           Control.Monad.State.Lazy
+import           Data.Map.Strict          as M
+import           Data.Text
+
+import           Control.Concurrent.STM
 
 
 
+type LlamaContextT = TVar LlamaContext
 
-type LlamaM = StateT LlamaEnv IO
-
+type UserID = Text
 
 ---------------------------------------------------
 
-data LlamaEnv = LlamaEnv
-  { leToken    :: Text
+data LlamaContext = LlamaContext
+  { lcToken    :: Text
   -- eventually, these three lists below become DB tables and we store a DBhandle
-  , leChannels :: [StoredChannel]
-  , leMessages :: [StoredMessage]
-  , leUsers    :: [StoredUser]
+  , lcChannels :: [ActiveChannel]
+  , lcMessages :: [ProcessedMessage]
+  , lcUsers    :: Map UserID ActiveUser
   } deriving (Eq, Show)
 
 
-data StoredChannel = StoredChannel
-  { lcId     :: Text
-  , lcLog    :: Bool
-  , lcListen :: Bool
+data ActiveChannel = ActiveChannel
+  { acId     :: Text
+  , acLog    :: Bool
+  , acListen :: Bool
   } deriving (Eq, Show)
 
 
-data StoredMessage = StoredMessage 
-  { lmMessage :: Text
-  , lmUserID  :: Text
-  , lmTotal   :: Integer
+data ProcessedMessage = ProcessedMessage 
+  { pmMessage     :: Text
+  , pmSenderID    :: UserID
+  , pmRecipientID :: UserID
+  , pmChannelID   :: Text
+  , pmTotal       :: Integer
   } deriving (Eq, Show)
 
-data StoredUser = StoredUser
-  { suId                     :: Text
-  , suLlamasSentToday        :: Integer
-  , suLlamasReceivedThisWeek :: Integer
-  , suLlamasReceived         :: Integer
+data ActiveUser = ActiveUser
+  { auId                     :: UserID
+  , auLlamasSentToday        :: Integer
+  , auLlamasReceivedThisWeek :: Integer
+  , auLlamasReceived         :: Integer
   } deriving (Eq, Show)
 
 
-initializeLlamaEnv :: Text -> LlamaEnv
-initializeLlamaEnv token = LlamaEnv
-  { leToken = token
-  , leChannels = []
-  , leMessages = []
-  , leUsers = []
+initializeLlamaTVar :: Text -> STM LlamaContextT
+initializeLlamaTVar = newTVar . initializeLlamaContext
+
+initializeLlamaContext :: Text -> LlamaContext
+initializeLlamaContext token = LlamaContext
+  { lcToken = token
+  , lcChannels = []
+  , lcMessages = []
+  , lcUsers = M.empty
   }

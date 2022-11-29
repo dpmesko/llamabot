@@ -13,13 +13,35 @@ ghc-options: -Wall -Werror
 
 executables:
   llamabot:
-    source-dirs: src/
+    source-dirs: app/
     main: Main.hs
     other-modules: []
-    dependencies:
+    dependencies: # TODO: come back and remove unnecessary deps here
+    - aeson # go?
+    - slack-api # for sure go
+    - stm
+
+    - bytestring
+    - case-insensitive
+    - containers
+    - hflags
+    - http-api-data
+    - http-client
+    - http-client-tls
+    - http-types
+    - llamabot-core
+    - text
+    - wai
+    - warp
+
+library:
+  source-dirs: src
+  ghc-options: -Wall -O2
+  dependencies:
     - aeson
     - bytestring
     - case-insensitive
+    - containers
     - hflags
     - http-api-data
     - http-client
@@ -28,6 +50,9 @@ executables:
     - mtl
     - servant-server
     - slack-api
+    - stm
     - text
     - wai
     - warp
+
+
