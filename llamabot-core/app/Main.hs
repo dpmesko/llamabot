@@ -138,32 +138,35 @@ sendLlamaResponse contextT channel sender recipient _ number = do -- thread is t
   --          ]
   --      ]
   
-  context <- atomically $ readTVar contextT
+  (recipientData, senderData, token) <- atomically $ do
+    context <- readTVar contextT
+
   
-  -- add the message
-  let pm = ProcessedMessage 
-        { pmMessage = "we don't save message body yet?"
-        , pmSenderID = sender
-        , pmRecipientID = recipient
-        , pmChannelID = channel
-        , pmTotal = number
-        }
-      messages = (lcMessages context) ++ [pm]
+    -- add the message
+    let pm = ProcessedMessage 
+          { pmMessage = "we don't save message body yet?"
+          , pmSenderID = sender
+          , pmRecipientID = recipient
+          , pmChannelID = channel
+          , pmTotal = number
+          }
+        messages = (lcMessages context) ++ [pm]
       
-      -- update the user data
-      recipientData = case M.lookup recipient (lcUsers context) of
-                        Nothing -> ActiveUser recipient 0 number number
-                        Just (ActiveUser r st rw ra) -> ActiveUser r st (rw + number) (ra + number)
-      senderData = case M.lookup sender (lcUsers context) of
-                        Nothing -> ActiveUser sender number 0 0
-                        Just (ActiveUser r st rw ra) -> ActiveUser r (st + number) rw ra
+        -- update the user data
+        recipientData' = case M.lookup recipient (lcUsers context) of
+                          Nothing -> ActiveUser recipient 0 number number
+                          Just (ActiveUser r st rw ra) -> ActiveUser r st (rw + number) (ra + number)
+        senderData' = case M.lookup sender (lcUsers context) of
+                          Nothing -> ActiveUser sender number 0 0
+                          Just (ActiveUser r st rw ra) -> ActiveUser r (st + number) rw ra
  
-      userMap' = M.insert recipient recipientData (lcUsers context)
-      userMap = M.insert sender senderData userMap'
+        userMap' = M.insert recipient recipientData' (lcUsers context)
+        userMap = M.insert sender senderData' userMap'
 
-      finalContext = LlamaContext (lcToken context) (lcChannels context) messages userMap
+        finalContext = LlamaContext (lcToken context) (lcChannels context) messages userMap
 
-  atomically $ writeTVar contextT finalContext
+    writeTVar contextT finalContext
+    return (recipientData', senderData', lcToken context)
 
   let msg = PostMessage
               channel
@@ -175,7 +178,7 @@ sendLlamaResponse contextT channel sender recipient _ number = do -- thread is t
                 { method = "POST"
                 , NC.requestBody = RequestBodyLBS $ encode msg
                 , NC.requestHeaders = 
-                    [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack $ lcToken context)))
+                    [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack token)))
                     , (hContentType, (C.pack "application/json"))
                     ]
                 }
