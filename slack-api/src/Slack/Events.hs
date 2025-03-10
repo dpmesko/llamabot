@@ -45,6 +45,7 @@ data Authorization = Authorization
 
 data Event = Event
   { typ :: Text
+  , channel :: Maybe Text
   , text :: Maybe Text
   , eventTimestamp :: Text
   , user :: Text
@@ -94,12 +95,13 @@ instance FromJSON Authorization where
 instance FromJSON Event where
   parseJSON (Object o) = do
     tp <- o .: "type"
+    ch <- o .:? "channel"
     tx <- o .:? "text"
     es <- o .: "event_ts"
     us <- o .: "user"
     ts <- o .: "ts"
     it <- o .:? "item"
-    return $ Event tp tx es us ts it
+    return $ Event tp ch tx es us ts it
   parseJSON x = error $ "unknown event type: " ++ show x
 
 instance FromJSON Message where

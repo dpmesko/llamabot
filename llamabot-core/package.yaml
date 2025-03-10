@@ -30,6 +30,7 @@ executables:
     - http-client-tls
     - http-types
     - llamabot-core
+    - mysql-simple
     - text
     - wai
     - warp
@@ -48,10 +49,12 @@ library:
     - http-client-tls
     - http-types
     - mtl
+    - mysql-simple
     - servant-server
     - slack-api
     - stm
     - text
+    - time
     - wai
     - warp
 

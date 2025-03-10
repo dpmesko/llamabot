@@ -4,8 +4,6 @@
 {-# LANGUAGE RecordWildCards    #-}
 {-# LANGUAGE TemplateHaskell    #-}
 
-
-
 -- import           Control.Exception            hiding (Handler)
 -- import           Control.Monad.IO.Class
 import           Control.Monad
@@ -15,20 +13,19 @@ import qualified Data.ByteString.Char8        as C
 import qualified Data.ByteString.Lazy         as BL
 -- import           Data.Coerce
 import           Data.Text                    as T
--- import           Data.Maybe
-
-
+import qualified Data.Map.Strict              as M
+import           Data.Maybe
 import           HFlags
-
 -- import           Llamabot.Types
-
---import           Network.HTTP.Client          as NC
--- import qualified Network.HTTP.Client.TLS      as TLS
+import           Network.HTTP.Client          as NC
+import qualified Network.HTTP.Client.TLS      as TLS
 import           Network.HTTP.Types.Header
 import           Network.HTTP.Types.Status
 import           Network.Wai                  as W
 import           Network.Wai.Handler.Warp
+-- import           Servant
 import           Web.FormUrlEncoded
+
 
 
 import           Llamabot
@@ -80,6 +77,7 @@ $(return [])
 
 ------------------------------- APP LOGIC ---------------------------------
 
+
 data IRForm = IRForm String deriving (Eq, Show)
 
 instance FromForm IRForm where
@@ -121,24 +119,22 @@ app contextT req responder = do
          
           when (hasLlamasAndTag ev) $ do
             let (llamaTotal, recipient) = parseLlamaPost $ text ev
-            _ <- forkIO $ handleLlamaResponse contextT (channel ev) (user ev) recipient (ts ev) llamaTotal
-            putStrLn $ "handler thread forked, returning 200 OK"
+            _ <- forkIO $ sendLlamaResponse contextT (channel ev) (user ev) recipient (ts ev) llamaTotal
+            putStrLn $ "handler thread forked, returning 200"
           
           -- the 200 response
           responder $ responseLBS status200 [] BL.empty
 
 
--- defaultChannel :: Text
--- defaultChannel = "C08GV70G1GU" -- this is the #llamalog channel in LaunchLiveNow
+defaultChannel :: Text
+defaultChannel = "C08GV70G1GU" -- this is the #llamalog channel in LaunchLiveNow
 
 
-handleLlamaResponse :: LlamaContextT -> Maybe Text -> Text -> Text -> Text -> Integer -> IO ()
-handleLlamaResponse _ _ _ _ _ _ = return ()
-
--- sendLlamaResponse contextT mChannel sender recipient _ number = do -- thread is the missing one
---  let channel = fromMaybe defaultChannel mChannel
---  manager <- TLS.newTlsManager
---  initRequest <- parseRequest "https://slack.com/api/chat.postMessage"
+sendLlamaResponse :: LlamaContextT -> Maybe Text -> Text -> Text -> Text -> Integer -> IO ()
+sendLlamaResponse contextT mChannel sender recipient _ number = do -- thread is the missing one
+  let channel = fromMaybe defaultChannel mChannel
+  manager <- TLS.newTlsManager
+  initRequest <- parseRequest "https://slack.com/api/chat.postMessage"
   -- let msgBlocks = 
   --      [ BlockText (TextBlock "plain_text" False "Hello!")
   --      , BlockElements
@@ -147,28 +143,59 @@ handleLlamaResponse _ _ _ _ _ _ = return ()
   --          ]
   --      ]
   
---  (recipientData, senderData, token) <- atomically $ do
---    context <- readTVar contextT
+  (recipientData, senderData, token) <- atomically $ do
+    context <- readTVar contextT
 
+  
+    -- add the message
+    let pm = ProcessedMessage 
+          { pmMessage = "we don't save message body yet?"
+          , pmSenderID = sender
+          , pmRecipientID = recipient
+          , pmChannelID = channel
+          , pmTotal = number
+          }
+        messages = (lcMessages context) ++ [pm]
+      
+        -- update the user data
+        recipientData' = case M.lookup recipient (lcUsers context) of
+                          Nothing -> ActiveUser recipient 0 number number
+                          Just (ActiveUser r st rw ra) -> ActiveUser r st (rw + number) (ra + number)
+        senderData' = case M.lookup sender (lcUsers context) of
+                          Nothing -> ActiveUser sender number 0 0
+                          Just (ActiveUser r st rw ra) -> ActiveUser r (st + number) rw ra
+ 
+        userMap' = M.insert recipient recipientData' (lcUsers context)
+        userMap = M.insert sender senderData' userMap'
 
---  let msg = PostMessage
---              channel
---              (Just $ T.pack $ "Thanks " ++ (T.unpack $ "<@" <> sender <> ">") ++ "! You sent " ++ (T.unpack recipient) ++ "> " ++ (show number) ++ " llamas! You have sent " ++ (show $ auLlamasSentToday senderData) ++ " llamas today.  " ++ (T.unpack recipient) ++ "> has received " ++ (show $ auLlamasReceived recipientData) ++ " in their lifetime.")
---              Nothing -- (Just thread)
---              Nothing -- (Just msgBlocks)
+        finalContext = LlamaContext (lcToken context) (lcChannels context) messages userMap
 
---      request = initRequest 
---                { method = "POST"
---                , NC.requestBody = RequestBodyLBS $ encode msg
---                , NC.requestHeaders = 
---                    [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack token)))
---                    , (hContentType, (C.pack "application/json"))
---                    ]
---                }
+    writeTVar contextT finalContext
+    return (recipientData', senderData', lcToken context)
+    
 
---  response <- httpLbs request manager
+  --- QUICKLY STEAL CONTEXT, DELETE SOON
+  finalContext <- atomically $ readTVar contextT
+  putStrLn $ "\nCONTEXT UPDATE: \n" ++ show finalContext
 
---  putStrLn $ "sent a response to llamas -- - the status code was " ++ (C.unpack $ BL.toStrict $ NC.responseBody response)
+  let msg = PostMessage
+              channel
+              (Just $ T.pack $ "Thanks " ++ (T.unpack $ "<@" <> sender <> ">") ++ "! You sent " ++ (T.unpack recipient) ++ "> " ++ (show number) ++ " llamas! You have sent " ++ (show $ auLlamasSentToday senderData) ++ " llamas today.  " ++ (T.unpack recipient) ++ "> has received " ++ (show $ auLlamasReceived recipientData) ++ " in their lifetime.")
+              Nothing -- (Just thread)
+              Nothing -- (Just msgBlocks)
+
+      request = initRequest 
+                { method = "POST"
+                , NC.requestBody = RequestBodyLBS $ encode msg
+                , NC.requestHeaders = 
+                    [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack token)))
+                    , (hContentType, (C.pack "application/json"))
+                    ]
+                }
+
+  response <- httpLbs request manager
+
+  putStrLn $ "sent a response to llamas -- - the status code was " ++ (C.unpack $ BL.toStrict $ NC.responseBody response)
 
 
 
@@ -203,29 +230,44 @@ main :: IO ()
 main = do
   _ <- $initHFlags "Lllamabot server v0.2"
  
-  putStrLn "\n"
   putStrLn $ "Welcome to Llamabot v0.3"
-  putStrLn "\n"
   putStrLn $ "OAUTH FLAG: " ++ (show $ flags_token)
 
-  putStrLn $ "-- checking MySQL database connection (credentials hardcoded for now)"
-  
-  conn <- dbConnect
-
-  putStrLn "-- database connection established, initializing tables if not yet existing"
-  metadata <- initializeDB conn
-
-  dbClose conn
-  
-  putStrLn "-- initializing program state"
-  llamaT <- atomically $ initializeLlamaTVar (T.pack flags_token) metadata
-
-  putStrLn "\n"
-  putStrLn "starting server"
   putStrLn "listening on 8081"
 
+--
+--
+--  q <- atomically $ do 
+--    qq <- newLlamaQueue 
+--    writeTQueue qq "hiya"
+--    writeTQueue qq "poopie"
+--    return qq
+ 
+--  tv <- atomically $ newDBTVar
+
+--  tid <- forkIO $ do 
+--    txt <- atomically $ readTQueue q
+    
+--     v <- atomically $ readTVar tv
+--     atomically $ writeTVar tv (v ++ [42])
+--    v1 <- atomically $ readTVar tv
+--   atomically $ writeTVar tv (v1 ++ [40])
+  
+
+--  threadDelay 3000000
+--   vals <- atomically $ flushTQueue q
+--   t <- atomically $ readTVar tv
+--  s <- atomically $ readTVar tv
+--  putStrLn $ " is the tqueue empty?"  ++ show vals
+--  putStrLn $ " is the tvar ?" ++ show t
+--  putStrLn $ " is the tvar ?" ++ show s
+--  killThread tid
+  
+
+  llamaT <- atomically $ initializeLlamaTVar (T.pack flags_token)
 
   run 8081 (app llamaT)
 
+  -- run 8081 (serve app server)
 
 
