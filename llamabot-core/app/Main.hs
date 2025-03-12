@@ -19,6 +19,7 @@ import qualified Data.ByteString.Lazy         as BL
 -- import           Data.Coerce
 -- import           Data.Either
 import           Data.Text                    as T
+import           Data.Time
 import           Data.Maybe
 
 import           HFlags
@@ -100,12 +101,16 @@ defaultChannel = "C08GV70G1GU" -- this is the #llamalog channel in LaunchLiveNow
 handleLlamaResponse :: LlamaContextT -> Maybe Text -> Text -> Text -> Text -> Integer -> IO ()
 handleLlamaResponse contextT mChannel sender recipient thread number = do
 
+  currentDay <- getCurrentTime >>= return . utctDay
+  
   let channel = fromMaybe defaultChannel mChannel
       llamaMessage = LlamaMessage { lmChannelId = channel
                                   , lmSender = sender
                                   , lmRecipient = recipient
-                                  , lmTs = thread
                                   , lmTotal = number
+                                  , lmMsgBody = "TODO TODO TODO lol parsingNeedsToBeDiff"
+                                  , lmTs = thread
+                                  , lmDate = currentDay
                                   }
  
   putStrLn $ "llama message parsed ----- " ++ show llamaMessage

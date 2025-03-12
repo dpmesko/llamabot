@@ -13,6 +13,7 @@ module Llamabot.Message (
 
 import qualified Data.Map           as M
 import           Data.Text          as T
+import           Data.Time
 
 import           Llamabot.Database
 
@@ -23,8 +24,10 @@ data LlamaMessage = LlamaMessage
   { lmChannelId :: Text
   , lmSender    :: Text
   , lmRecipient :: Text
-  , lmTs        :: Text
   , lmTotal     :: Integer
+  , lmMsgBody   :: Text
+  , lmTs        :: Text
+  , lmDate      :: Day
   } deriving (Eq, Show)
 
 
@@ -37,7 +40,6 @@ data MessageError = MessageError Text deriving (Eq, Show)
 data MessageErrorType = ExceedsAllotment
                       | SelfSend
                       deriving (Eq, Show)
-
 
 
 
@@ -98,7 +100,7 @@ fetchOrCreateUsers senderId recipientId = do
               Just user -> return user
               Nothing -> do
                 let newUser = DBUser { userId                 = senderId
-                                     , llamasSentToday        = 0 
+                                     , llamaDailyAllotment    = 5 -- TODO: configurable
                                      , llamasReceivedThisWeek = 0
                                      , llamasSentThisWeek     = 0 
                                      , llamasReceived         = 0
@@ -111,7 +113,7 @@ fetchOrCreateUsers senderId recipientId = do
                  Just user -> return user
                  Nothing -> do
                    let newUser = DBUser { userId                 = recipientId
-                                        , llamasSentToday        = 0
+                                        , llamaDailyAllotment    = 5 -- TODO: configurable
                                         , llamasReceivedThisWeek = 0
                                         , llamasSentThisWeek     = 0
                                         , llamasReceived         = 0
@@ -123,35 +125,75 @@ fetchOrCreateUsers senderId recipientId = do
   return (sender, recipient)
 
 
--- TODO: make allotment configurable and stored in context?
 senderHasAllotment :: DBUser -> Integer -> Bool
-senderHasAllotment sender amount = (5 - (llamasSentToday sender)) >= amount
+senderHasAllotment sender amount = (llamaDailyAllotment sender) - amount >= 0
 
-updateSenderTotals :: DBUser -> Integer -> IO ()
-updateSenderTotals _ _ = return ()
---updateSenderTotals sender amount = return ()
+updateSenderTotals :: DBUser -> Integer -> IO (DBUser)
+updateSenderTotals sender@DBUser{..} amount = do
+  let newAllotment = llamaDailyAllotment - amount
+      newWeekTotal = llamasSentThisWeek + amount
+      newTotal = llamasSent + amount
+      sender' = sender { llamaDailyAllotment = newAllotment
+                       , llamasSentThisWeek = newWeekTotal
+                       , llamasSent = newTotal
+                       }
+      senderUpdate = SenderUpdate { allotment = newAllotment
+                                  , sentThisWeek = newWeekTotal
+                                  , sent = newTotal
+                                  , senderId = userId
+                                  }
+  dbConn <- dbConnect
+  (updateSender dbConn senderUpdate) >> (dbClose dbConn) >> return sender'
+
 
 updateRecipientTotals :: DBUser -> Integer -> IO ()
--- updateRecipientTotals recipient amount = return ()
-updateRecipientTotals _ _ = return ()
+updateRecipientTotals DBUser{..} amount = do
+  let newWeekTotal = llamasReceivedThisWeek + amount
+      newTotal = llamasReceived + amount
+      recipientUpdate = RecipientUpdate { receivedThisWeek = newWeekTotal
+                                        , received = newTotal
+                                        , recipientId = userId
+                                        }
+  dbConn <- dbConnect
+  (updateRecipient dbConn recipientUpdate) >> dbClose dbConn
 
 
-generateReply :: LlamaMessage -> MessageResult
-generateReply _ = MessageResult "bla bla for now"
+generateReply :: LlamaMessage -> DBUser -> MessageResult
+generateReply _ _ = MessageResult "bla bla for now"
 
 generateError :: LlamaMessage -> MessageErrorType -> MessageError
 generateError _ _ = MessageError "you stink for now"
 
 
+
+
+addMessage :: LlamaMessage -> IO ()
+addMessage message = do
+  let dbMessage = messageToDBMessage message
+  dbConn <- dbConnect
+  insertMessage dbConn dbMessage
+  dbClose dbConn
+
+messageToDBMessage :: LlamaMessage -> DBMessage
+messageToDBMessage LlamaMessage{..} = DBMessage { body = lmMsgBody
+                                                , sender = lmSender
+                                                , recipient = lmRecipient
+                                                , msgChannelId = lmChannelId
+                                                , date = lmDate
+                                                }
+
+
 processLlamaMessage :: LlamaMessage -> IO (ParserResult)
 processLlamaMessage message = do
   -- TODO: update DB for new day/week logic
+  -- and maybe, that shouldn't happen for all users at once, but per user? 
+
   -- llamaContext <- atomically $ readTVar contextT
   -- currentDay <- getCurrentTime >>= return . utctDay
   
+  -- add channel if needed, also maybe these things should happen on any slack event
+
   let validity = checkBasicValidity message
-  
-  putStrLn $ "validity - " ++ (show validity)
   
   case validity of
     Left err -> return $ Left err
@@ -160,7 +202,8 @@ processLlamaMessage message = do
       if not $ senderHasAllotment sender (lmTotal message) 
         then return $ Left $ generateError message ExceedsAllotment
       else do
-        updateSenderTotals sender (lmTotal message)
+        sender' <- updateSenderTotals sender (lmTotal message)
         updateRecipientTotals recipient (lmTotal message)
-        return $ Right $ generateReply message 
+        addMessage message
+        return $ Right $ generateReply message sender' 
 

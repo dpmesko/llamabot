@@ -6,6 +6,8 @@ module Llamabot.Database (
   DBChannel(..),
   DBMessage(..),
   DBMetadata(..),
+  SenderUpdate(..),
+  RecipientUpdate(..),
   dbConnect,
   dbClose,
   initializeDB,
@@ -13,6 +15,8 @@ module Llamabot.Database (
   insertChannel,
   insertMessage,
   insertMetadata,
+  updateSender,
+  updateRecipient,
   selectUsers,
   selectUserById,
   selectUsersByIds,
@@ -37,10 +41,10 @@ import           Database.MySQL.Simple.QueryParams
 import           Database.MySQL.Simple.QueryResults
 
 
-
+------------------------- TABLE DEFINITIONS ---------------------------
 data DBUser = DBUser 
   { userId                 :: Text
-  , llamasSentToday        :: Integer
+  , llamaDailyAllotment    :: Integer
   , llamasReceivedThisWeek :: Integer
   , llamasSentThisWeek     :: Integer
   , llamasReceived         :: Integer
@@ -54,20 +58,40 @@ data DBChannel = DBChannel
   } deriving (Eq, Show)
 
 data DBMessage = DBMessage
-  { body       :: Text
-  , sender     :: Text
-  , recipient  :: Text
-  , mChannelId :: Text
-  , date       :: Day
+  { body         :: Text
+  , sender       :: Text
+  , recipient    :: Text
+  , msgChannelId :: Text
+  , date         :: Day
   } deriving (Eq, Show)
 
 
-data DBMetadata = DBMetadata { mdCurrentDay :: Day} deriving (Eq, Show)
+data DBMetadata = DBMetadata { mdCurrentDay :: Day } deriving (Eq, Show)
+
+
+------------------------ UPDATE QUERY TYPES ---------------------------
+
+data SenderUpdate = SenderUpdate
+  { allotment    :: Integer
+  , sentThisWeek :: Integer
+  , sent         :: Integer
+  , senderId     :: Text
+  } deriving (Eq, Show)
+
+data RecipientUpdate = RecipientUpdate
+  { receivedThisWeek :: Integer
+  , received         :: Integer
+  , recipientId      :: Text
+  } deriving (Eq, Show)
+
+
+
+---------------------------- INSTANCES --------------------------------
 
 instance QueryParams DBUser where
   renderParams user = [a, b, c, d, e, f]
     where a = render $ userId user
-          b = render $ llamasSentToday user
+          b = render $ llamaDailyAllotment user
           c = render $ llamasReceivedThisWeek user
           d = render $ llamasSentThisWeek user
           e = render $ llamasReceived user
@@ -103,7 +127,7 @@ instance QueryParams DBMessage where
     where a = render $ body message
           b = render $ sender message
           c = render $ recipient message
-          d = render $ mChannelId message
+          d = render $ msgChannelId message
           e = render $ date message
 
 instance QueryResults DBMessage where
@@ -126,9 +150,22 @@ instance QueryResults DBMetadata where
   convertResults fs vs = convertError fs vs 1
 
 
+instance QueryParams SenderUpdate where
+   renderParams update = [a, b, c, d]
+    where a = render $ allotment update
+          b = render $ sentThisWeek update
+          c = render $ sent update
+          d = render $ senderId update
+
+instance QueryParams RecipientUpdate where
+   renderParams update = [a, b, c]
+    where a = render $ receivedThisWeek update
+          b = render $ received update
+          c = render $ recipientId update
 
 
------------------------- QUERY AND CONNECTION -----------------------
+
+------------------------ CONNECTION AND SETUP --------------------------
 
 -- TODO: you know... 
 dbConnectInfo :: ConnectInfo
@@ -169,6 +206,11 @@ getMetadata conn = do
     [m] -> return $ Just m
     xs -> return $ Just $ Prelude.head xs
 
+
+-------------------------- QUERY FUNCTIONS ---------------------------
+
+
+
 -- TODO: figure out the more monadic way to do this with do
 createAllTables :: Connection -> IO ()
 createAllTables conn = do
@@ -182,8 +224,10 @@ createAllTables conn = do
 createUsersTable :: Connection -> IO ()
 createUsersTable conn = void $ execute_ conn createUsersTableQuery
 
+-- temporarily disabling, do we need?
 createChannelsTable :: Connection -> IO ()
-createChannelsTable conn = void $ execute_ conn createChannelsTableQuery
+createChannelsTable _ = return ()
+-- createChannelsTable conn = void $ execute_ conn createChannelsTableQuery
 
 createMessagesTable :: Connection -> IO ()
 createMessagesTable conn = void $ execute_ conn createMessagesTableQuery 
@@ -204,6 +248,14 @@ insertMessage conn message = void $ execute conn insertMessageQuery message
 
 insertMetadata :: Connection -> DBMetadata -> IO ()
 insertMetadata conn metadata = void $ execute conn insertMetadataQuery metadata
+
+
+updateSender :: Connection -> SenderUpdate -> IO ()
+updateSender conn update = void $ execute conn updateSenderQuery update
+
+updateRecipient :: Connection -> RecipientUpdate -> IO ()
+updateRecipient conn update = void $ execute conn updateRecipientQuery update
+
 
 selectUsers :: Connection -> IO ([DBUser])
 selectUsers conn = query_ conn "select * from users" 
@@ -243,7 +295,7 @@ createUsersTableQuery :: Query
 createUsersTableQuery = 
   "CREATE TABLE IF NOT EXISTS users (\
      \ userId VARCHAR(32),\
-     \ llamasSentToday SMALLINT(16),\
+     \ llamaDailyAllotment SMALLINT(16),\
      \ llamasReceivedThisWeek SMALLINT(32),\
      \ llamasSentThisWeek SMALLINT(32),\
      \ llamasReceived SMALLINT(32),\
@@ -251,6 +303,7 @@ createUsersTableQuery =
      \ PRIMARY KEY (userId)\
      \);"
 
+{- 
 createChannelsTableQuery :: Query
 createChannelsTableQuery = 
   "CREATE TABLE IF NOT EXISTS channels (\
@@ -259,6 +312,8 @@ createChannelsTableQuery =
      \ isListening BOOL,\
      \ PRIMARY KEY (channelId)\
      \);"
+
+-}
 
 createMessagesTableQuery :: Query
 createMessagesTableQuery = 
@@ -269,9 +324,9 @@ createMessagesTableQuery =
      \ channelId VARCHAR(16),\
      \ date DATE,\
      \ FOREIGN KEY (sender) REFERENCES users(userId),\
-     \ FOREIGN KEY (recipient) REFERENCES users(userId),\
-     \ FOREIGN KEY (channelId) REFERENCES channels(channelId)\
+     \ FOREIGN KEY (recipient) REFERENCES users(userId)\
      \);"
+     {- \ FOREIGN KEY (channelId) REFERENCES channels(channelId)\ -}
 
 createMetadataTableQuery :: Query
 createMetadataTableQuery = 
@@ -281,7 +336,7 @@ createMetadataTableQuery =
 
 insertUserQuery :: Query
 insertUserQuery = 
-  "INSERT INTO users (userId, llamasSentToday, llamasReceivedThisWeek, llamasSentThisWeek, llamasReceived, llamasSent) VALUES (?, ?, ?, ?, ?, ?)"
+  "INSERT INTO users (userId, llamaDailyAllotment, llamasReceivedThisWeek, llamasSentThisWeek, llamasReceived, llamasSent) VALUES (?, ?, ?, ?, ?, ?)"
 
 insertChannelQuery :: Query
 insertChannelQuery =
@@ -302,3 +357,21 @@ insertMetadataQuery =
   "INSERT INTO metadata (\
     \ currentDay)\
     \ VALUES (?);"
+
+
+updateSenderQuery :: Query
+updateSenderQuery =
+  "UPDATE users SET\
+    \ llamaDailyAllotment = ?,\
+    \ llamasSentThisWeek = ?,\
+    \ llamasSent = ?\
+    \ WHERE userId = ?\
+    \;"
+
+updateRecipientQuery :: Query
+updateRecipientQuery =
+  "UPDATE users SET\
+    \ llamasReceivedThisWeek = ?,\
+    \ llamasReceived = ?\
+    \ WHERE userId = ?\
+    \;"
