@@ -6,6 +6,9 @@
 
 
 
+import           Control.Concurrent
+import           Control.Concurrent.STM
+
 -- import           Control.Exception            hiding (Handler)
 -- import           Control.Monad.IO.Class
 import           Control.Monad
@@ -14,16 +17,14 @@ import           Data.Aeson
 import qualified Data.ByteString.Char8        as C
 import qualified Data.ByteString.Lazy         as BL
 -- import           Data.Coerce
+-- import           Data.Either
 import           Data.Text                    as T
--- import           Data.Maybe
-
+import           Data.Maybe
 
 import           HFlags
 
--- import           Llamabot.Types
-
---import           Network.HTTP.Client          as NC
--- import qualified Network.HTTP.Client.TLS      as TLS
+import           Network.HTTP.Client          as NC
+import qualified Network.HTTP.Client.TLS      as TLS
 import           Network.HTTP.Types.Header
 import           Network.HTTP.Types.Status
 import           Network.Wai                  as W
@@ -36,49 +37,9 @@ import           Slack
 
 
 
--------------------------- TESTY STUFF -----------------
-import           Control.Concurrent
-import           Control.Concurrent.STM
-{-
-type EventsListener = "event" 
-                    :> ReqBody '[JSON] EventPayload
-                    :> Post '[JSON] NoContent
-
-
-data EventPayload = EventPayload
-  { status :: Text
-  }
-
-instance ToJSON EventPayload where
-  toJSON (EventPayload s) = String s
-
-
-instance FromJSON EventPayload where
-  parseJSON (String s) = return $ EventPayload s
-  parseJSON o = error $ "you shouldn't send this thing to this endpoint " ++ show o
-
-
-
-server :: Server EventsListener
-server = event
-  where event :: EventPayload -> Handler NoContent
-        event EventPayload{..} = do 
-          liftIO $ putStrLn $ "guess what event is ???? " ++ (show status)
-          return NoContent
-
-app :: Proxy EventsListener
-app = Proxy
--}
-
-
-
 defineFlag "token" ("" :: String) "Token for sending requests to slack"
 $(return [])
 
-
-
-
-------------------------------- APP LOGIC ---------------------------------
 
 data IRForm = IRForm String deriving (Eq, Show)
 
@@ -86,6 +47,8 @@ instance FromForm IRForm where
   fromForm f = IRForm
     <$> parseUnique "payload" f
 
+
+------------------------------- APP LOGIC ---------------------------------
 
 decodeInteractionResponse :: BL.ByteString -> Either String InteractionResponse
 --decodeInteractionResponse = eitherDecode =<< (BL.fromStrict . C.pack . coerce) =<< urlDecodeAsForm
@@ -127,18 +90,29 @@ app contextT req responder = do
           -- the 200 response
           responder $ responseLBS status200 [] BL.empty
 
-
--- defaultChannel :: Text
--- defaultChannel = "C08GV70G1GU" -- this is the #llamalog channel in LaunchLiveNow
+ 
 
 
+defaultChannel :: Text
+defaultChannel = "C08GV70G1GU" -- this is the #llamalog channel in LaunchLiveNow
+
+  
 handleLlamaResponse :: LlamaContextT -> Maybe Text -> Text -> Text -> Text -> Integer -> IO ()
-handleLlamaResponse _ _ _ _ _ _ = return ()
+handleLlamaResponse contextT mChannel sender recipient thread number = do
 
--- sendLlamaResponse contextT mChannel sender recipient _ number = do -- thread is the missing one
---  let channel = fromMaybe defaultChannel mChannel
---  manager <- TLS.newTlsManager
---  initRequest <- parseRequest "https://slack.com/api/chat.postMessage"
+  let channel = fromMaybe defaultChannel mChannel
+      llamaMessage = LlamaMessage { lmChannelId = channel
+                                  , lmSender = sender
+                                  , lmRecipient = recipient
+                                  , lmTs = thread
+                                  , lmTotal = number
+                                  }
+ 
+  putStrLn $ "llama message parsed ----- " ++ show llamaMessage
+  processResponse <- processLlamaMessage llamaMessage
+  putStrLn $ show processResponse
+  manager <- TLS.newTlsManager
+  initRequest <- parseRequest "https://slack.com/api/reactions.add"
   -- let msgBlocks = 
   --      [ BlockText (TextBlock "plain_text" False "Hello!")
   --      , BlockElements
@@ -146,9 +120,11 @@ handleLlamaResponse _ _ _ _ _ _ = return ()
   --          , ButtonBody (TextBlock "plain_text" False "No, CLICK ME!!!") "danger" "right button"
   --          ]
   --      ]
-  
---  (recipientData, senderData, token) <- atomically $ do
---    context <- readTVar contextT
+
+  llamaContext <- atomically $ readTVar contextT
+
+  let reaction = PostReaction channel "poop" thread
+
 
 
 --  let msg = PostMessage
@@ -157,45 +133,21 @@ handleLlamaResponse _ _ _ _ _ _ = return ()
 --              Nothing -- (Just thread)
 --              Nothing -- (Just msgBlocks)
 
---      request = initRequest 
---                { method = "POST"
---                , NC.requestBody = RequestBodyLBS $ encode msg
---                , NC.requestHeaders = 
---                    [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack token)))
---                    , (hContentType, (C.pack "application/json"))
---                    ]
---                }
+      request = initRequest 
+                { method = "POST"
+                , NC.requestBody = RequestBodyLBS $ encode reaction
+                , NC.requestHeaders = 
+                    [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack $ lcToken llamaContext)))
+                    , (hContentType, (C.pack "application/json"))
+                    ]
+                }
 
---  response <- httpLbs request manager
+  response <- httpLbs request manager
 
---  putStrLn $ "sent a response to llamas -- - the status code was " ++ (C.unpack $ BL.toStrict $ NC.responseBody response)
-
-
-
-parseLlamaPost :: Maybe Text -> (Integer, Text)
-parseLlamaPost Nothing = (0, "")
-parseLlamaPost (Just t) = 
-  let llamaTotal = toInteger $ Prelude.length $ T.breakOnAll ":llama:" t
-      recipient =
-        let prstr = snd $ Prelude.head $ T.breakOnAll "<@" t
-        in fst $ Prelude.head $ T.breakOnAll ">" prstr
-  in (llamaTotal, recipient)
-
-hasLlamasAndTag :: Event -> Bool
-hasLlamasAndTag ev = (countLlamas ev > 0) && (countTags ev == 1)
-
-countTags :: Event -> Integer
-countTags Event{..} = 
-  case text of
-    Nothing -> 0
-    Just t -> toInteger $ Prelude.length $ T.breakOnAll "<@" t
+  putStrLn $ "sent a response to llamas -- - the status code was " ++ (C.unpack $ BL.toStrict $ NC.responseBody response)
 
 
-countLlamas :: Event -> Integer
-countLlamas Event{..} =
-  case text of
-    Nothing -> 0
-    Just t -> toInteger $ Prelude.length $ T.breakOnAll ":llama:" t
+
 
 
 

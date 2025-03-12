@@ -1,8 +1,4 @@
--- {-# LANGUAGE DataKinds          #-}
--- {-# LANGUAGE TypeOperators      #-}
 {-# LANGUAGE OverloadedStrings  #-}
--- {-# LANGUAGE RecordWildCards    #-}
--- {-# LANGUAGE TemplateHaskell    #-}
 
 
 module Llamabot.Database (
@@ -18,6 +14,8 @@ module Llamabot.Database (
   insertMessage,
   insertMetadata,
   selectUsers,
+  selectUserById,
+  selectUsersByIds,
   selectChannels,
   selectMessages,
   selectMetadata
@@ -26,6 +24,9 @@ module Llamabot.Database (
 
 import           Control.Monad
 
+import qualified Data.Map                             as M
+import           Data.Maybe
+import qualified Data.List                            as L
 import           Data.Text
 import           Data.Time
 
@@ -125,6 +126,8 @@ instance QueryResults DBMetadata where
   convertResults fs vs = convertError fs vs 1
 
 
+
+
 ------------------------ QUERY AND CONNECTION -----------------------
 
 -- TODO: you know... 
@@ -204,6 +207,28 @@ insertMetadata conn metadata = void $ execute conn insertMetadataQuery metadata
 
 selectUsers :: Connection -> IO ([DBUser])
 selectUsers conn = query_ conn "select * from users" 
+
+selectUserById :: Connection -> Text -> IO (Maybe DBUser)
+selectUserById conn uId = do
+  userList <- query conn "select * from users where userId=?" ([uId])
+
+  case userList of 
+    [] -> return Nothing
+    [u] -> return $ Just u
+    xs -> return $ Just (Prelude.head xs)
+      -- TODO: throw error instead? userId is a primary key so this will never happen
+      
+
+-- TODO: this is a n^2 op
+--        even though we only query 2 at a time, we should try to improve
+selectUsersByIds :: Connection -> [Text] -> IO (M.Map Text DBUser)
+selectUsersByIds conn userIds = do
+  dbUserList <- query conn "select * from users where userId in ?" $ (Only (In userIds))
+  let generateUserMapEntry :: Text -> Maybe (Text, DBUser)
+      generateUserMapEntry uId = case (L.find (\u -> uId == (userId u)) dbUserList) of
+                                  Nothing -> Nothing
+                                  Just u -> Just (uId, u)
+  return $ M.fromList $ catMaybes $ Prelude.map generateUserMapEntry userIds
 
 selectChannels :: Connection -> IO ([DBChannel])
 selectChannels conn = query_ conn "select * from channels" 
