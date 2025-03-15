@@ -84,9 +84,20 @@ app contextT req responder = do
         (EventDetails _ _ _ ev _ _ _ _ _ _ _) -> do 
          
           when (hasLlamasAndTag ev) $ do
-            let (llamaTotal, recipient) = parseLlamaPost $ text ev
-            _ <- forkIO $ handleLlamaResponse contextT (channel ev) (user ev) recipient (ts ev) llamaTotal
-            putStrLn $ "handler thread forked, returning 200 OK"
+            currentDay <- getCurrentTime >>= return . utctDay
+            
+            let (llamaTotal, recipient, body') = parseLlamaPost $ text ev
+                channel' = fromMaybe defaultChannel (channel ev)
+                llamaMessage = LlamaMessage { lmChannelId = channel'
+                                           , lmSender = user ev
+                                           , lmRecipient = recipient
+                                           , lmTotal = llamaTotal
+                                           , lmMsgBody = body'
+                                           , lmTs = ts ev
+                                           , lmDate = currentDay
+                                           }
+            _ <- forkIO $ handleLlamaResponse contextT llamaMessage 
+            putStrLn $ "[INFO] Llama Message Received. Handler Thread Forked, Returning 200 OK"
           
           -- the 200 response
           responder $ responseLBS status200 [] BL.empty
@@ -97,27 +108,14 @@ app contextT req responder = do
 defaultChannel :: Text
 defaultChannel = "C08GV70G1GU" -- this is the #llamalog channel in LaunchLiveNow
 
-  
-handleLlamaResponse :: LlamaContextT -> Maybe Text -> Text -> Text -> Text -> Integer -> IO ()
-handleLlamaResponse contextT mChannel sender recipient thread number = do
 
-  currentDay <- getCurrentTime >>= return . utctDay
-  
-  let channel = fromMaybe defaultChannel mChannel
-      llamaMessage = LlamaMessage { lmChannelId = channel
-                                  , lmSender = sender
-                                  , lmRecipient = recipient
-                                  , lmTotal = number
-                                  , lmMsgBody = "TODO TODO TODO lol parsingNeedsToBeDiff"
-                                  , lmTs = thread
-                                  , lmDate = currentDay
-                                  }
- 
-  putStrLn $ "llama message parsed ----- " ++ show llamaMessage
-  processResponse <- processLlamaMessage llamaMessage
-  putStrLn $ show processResponse
-  manager <- TLS.newTlsManager
-  initRequest <- parseRequest "https://slack.com/api/reactions.add"
+-- TODO: should these be in the slack-api package? probably
+ephemeralMessageSlackURL :: String
+ephemeralMessageSlackURL = "https://slack.com/api/chat.postEphemeral"
+
+messageSlackURL :: String
+messageSlackURL = "https://slack.com/api/chat.postMessage"
+
   -- let msgBlocks = 
   --      [ BlockText (TextBlock "plain_text" False "Hello!")
   --      , BlockElements
@@ -126,35 +124,76 @@ handleLlamaResponse contextT mChannel sender recipient thread number = do
   --          ]
   --      ]
 
-  llamaContext <- atomically $ readTVar contextT
-
-  let reaction = PostReaction channel "poop" thread
 
 
+handleLlamaResponse :: LlamaContextT -> LlamaMessage -> IO ()
+handleLlamaResponse contextT llamaMessage = do
 
---  let msg = PostMessage
---              channel
---              (Just $ T.pack $ "Thanks " ++ (T.unpack $ "<@" <> sender <> ">") ++ "! You sent " ++ (T.unpack recipient) ++ "> " ++ (show number) ++ " llamas! You have sent " ++ (show $ auLlamasSentToday senderData) ++ " llamas today.  " ++ (T.unpack recipient) ++ "> has received " ++ (show $ auLlamasReceived recipientData) ++ " in their lifetime.")
---              Nothing -- (Just thread)
---              Nothing -- (Just msgBlocks)
+  processResponse <- processLlamaMessage llamaMessage
 
-      request = initRequest 
-                { method = "POST"
-                , NC.requestBody = RequestBodyLBS $ encode reaction
-                , NC.requestHeaders = 
-                    [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack $ lcToken llamaContext)))
-                    , (hContentType, (C.pack "application/json"))
-                    ]
-                }
+  manager <- TLS.newTlsManager
 
-  response <- httpLbs request manager
+  case processResponse of
+    Left (MessageError errType errMsg) -> do
+      llamaContext <- atomically $ readTVar contextT
+      
+      request <- generateMessageRequest ephemeralMessageSlackURL (lcToken llamaContext) errMsg llamaMessage
+      reaction <- generateReactionRequest (lcToken llamaContext) "thinking_face" llamaMessage 
+      _ <- httpLbs request manager
+      _ <- httpLbs reaction manager
+      putStrLn $ "[USER ERROR] Invalid Llama Message: " ++ (show errType)
+    Right (MessageReply public hidden) -> do
+      llamaContext <- atomically $ readTVar contextT
+      
+      publicRequest <- generateMessageRequest messageSlackURL (lcToken llamaContext) public llamaMessage
+      hiddenRequest <- generateMessageRequest ephemeralMessageSlackURL (lcToken llamaContext) hidden llamaMessage
 
-  putStrLn $ "sent a response to llamas -- - the status code was " ++ (C.unpack $ BL.toStrict $ NC.responseBody response)
+      reaction <- generateReactionRequest (lcToken llamaContext) "white_check_mark" llamaMessage 
+      _ <- httpLbs publicRequest manager
+      _ <- httpLbs hiddenRequest manager
+      _ <- httpLbs reaction manager
+      putStrLn "[INFO] Llama Message Processed"
+     
 
 
+-- they make us use a MonadThrow context for just generating the basic request
+-- because it attaches it to IO actions or something, thus this IO dependency
+-- but I'd love for it to be pure
+generateMessageRequest :: String -> Text -> Text -> LlamaMessage -> IO (NC.Request)
+generateMessageRequest url token reply llamaMessage = do
+  initRequest <- parseRequest url
+    
+  let msg = PostMessage
+            (lmChannelId llamaMessage)
+            (Just reply)
+            (Just $ lmSender llamaMessage)
+            Nothing -- (Just thread)
+            Nothing -- (Just msgBlocks)
 
+  return $ initRequest 
+             { NC.method = "POST"
+             , NC.requestBody = RequestBodyLBS $ encode msg
+             , NC.requestHeaders = 
+               [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack token)))
+               , (hContentType, (C.pack "application/json"))
+               ]
+             }
 
-
+generateReactionRequest :: Text -> Text -> LlamaMessage -> IO (NC.Request)
+generateReactionRequest token emoji llamaMessage = do
+  initRequest <- parseRequest "https://slack.com/api/reactions.add"
+ 
+  let reaction = PostReaction (lmChannelId llamaMessage) emoji (lmTs llamaMessage)
+  
+  return $ initRequest 
+             { NC.method = "POST"
+             , NC.requestBody = RequestBodyLBS $ encode reaction
+             , NC.requestHeaders = 
+               [ (hAuthorization, (C.pack $ "Bearer " ++ (T.unpack token)))
+               , (hContentType, (C.pack "application/json"))
+               ]
+             }
+ 
 
 main :: IO ()
 main = do
@@ -179,7 +218,7 @@ main = do
 
   putStrLn "\n"
   putStrLn "starting server"
-  putStrLn "listening on 8081"
+  putStrLn "listening on 8081\n"
 
 
   run 8081 (app llamaT)

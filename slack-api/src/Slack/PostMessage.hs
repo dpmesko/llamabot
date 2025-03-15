@@ -16,16 +16,8 @@ module Slack.PostMessage(
   ) where
 
 
--- import           Control.Exception            hiding (Handler)
--- import           Control.Monad.IO.Class
-import           Control.Monad
 import           Data.Aeson
--- import qualified Data.ByteString              as B
-import qualified Data.ByteString.Char8        as C
-import qualified Data.ByteString.Lazy         as BL
--- import           Data.Maybe
 import           Data.Text                    as T
--- import           Servant
 
 
 
@@ -84,7 +76,7 @@ instance ToJSON Element where
     , "initial_date" .= i
     , "placeholder" .= p
     ]
-  toJSON x = error $ "you tried to JSON encode a bad pair of element type and element body: " ++ (show x)
+--  toJSON x = error $ "you tried to JSON encode a bad pair of element type and element body: " ++ (show x)
 
 
 ------------------ BLOCKS ---------------------------
@@ -124,7 +116,7 @@ instance ToJSON Block where
     [ "type" .= String "actions"
     , "elements" .= be
     ]
-  toJSON x = error $ "invalid block construction to encode as JSON: " ++ (show x)
+--  toJSON x = error $ "invalid block construction to encode as JSON: " ++ (show x)
 
 
 
@@ -132,15 +124,17 @@ instance ToJSON Block where
 data PostMessage = PostMessage
   { pmChannel :: Text
   , pmText :: Maybe Text
+  , pmUser :: Maybe Text
   , pmThreadTs :: Maybe Text
   , blocks :: Maybe [Block]
   } deriving (Eq, Show)
 
 
 instance ToJSON PostMessage where
-  toJSON (PostMessage c t ts bs) = object
+  toJSON (PostMessage c t u ts bs) = object
     [ "channel" .= c
     , "text" .= t
+    , "user" .= u
     , "thread_ts" .= ts
     , "blocks" .= bs
     ]

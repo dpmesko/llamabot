@@ -13,45 +13,24 @@ module Llamabot.Message (
 
 import qualified Data.Map           as M
 import           Data.Text          as T
-import           Data.Time
 
 import           Llamabot.Database
+import           Llamabot.Response
 
 import           Slack
 
 
-data LlamaMessage = LlamaMessage
-  { lmChannelId :: Text
-  , lmSender    :: Text
-  , lmRecipient :: Text
-  , lmTotal     :: Integer
-  , lmMsgBody   :: Text
-  , lmTs        :: Text
-  , lmDate      :: Day
-  } deriving (Eq, Show)
-
-
-type ParserResult = Either MessageError MessageResult
-
-data MessageResult = MessageResult Text deriving (Eq, Show)
-
-data MessageError = MessageError Text deriving (Eq, Show)
-
-data MessageErrorType = ExceedsAllotment
-                      | SelfSend
-                      deriving (Eq, Show)
-
 
 
 -- TODO: kind of ugly string nonsense, see if we can clean
-parseLlamaPost :: Maybe Text -> (Integer, Text)
-parseLlamaPost Nothing = (0, "")
+parseLlamaPost :: Maybe Text -> (Integer, Text, Text)
+parseLlamaPost Nothing = (0, "", "")
 parseLlamaPost (Just t) = 
   let llamaTotal = toInteger $ Prelude.length $ T.breakOnAll ":llama:" t
       recipient =
         let prstr = snd $ Prelude.head $ T.breakOnAll "<@" t
         in T.drop 2 $ fst $ Prelude.head $ T.breakOnAll ">" prstr
-  in (llamaTotal, recipient)
+  in (llamaTotal, recipient, t)
 
 hasLlamasAndTag :: Event -> Bool
 hasLlamasAndTag ev = (countLlamas ev > 0) && (countTags ev == 1)
@@ -84,7 +63,7 @@ checkBasicValidity message =
   
   let selfSend :: Text -> Text -> Either MessageError Bool
       selfSend s r
-        | s == r = Left $ generateError message SelfSend
+        | s == r = Left $ generateError 0 SelfSend -- Integer ignored for SelfSend
         | otherwise = Right True
   in do
     _ <- selfSend (lmSender message) (lmRecipient message)
@@ -158,13 +137,6 @@ updateRecipientTotals DBUser{..} amount = do
   (updateRecipient dbConn recipientUpdate) >> dbClose dbConn
 
 
-generateReply :: LlamaMessage -> DBUser -> MessageResult
-generateReply _ _ = MessageResult "bla bla for now"
-
-generateError :: LlamaMessage -> MessageErrorType -> MessageError
-generateError _ _ = MessageError "you stink for now"
-
-
 
 
 addMessage :: LlamaMessage -> IO ()
@@ -200,7 +172,7 @@ processLlamaMessage message = do
     Right _ -> do
       (sender, recipient) <- fetchOrCreateUsers (lmSender message) (lmRecipient message)
       if not $ senderHasAllotment sender (lmTotal message) 
-        then return $ Left $ generateError message ExceedsAllotment
+        then return $ Left $ generateError (llamaDailyAllotment sender) ExceedsAllotment
       else do
         sender' <- updateSenderTotals sender (lmTotal message)
         updateRecipientTotals recipient (lmTotal message)
