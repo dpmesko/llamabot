@@ -82,7 +82,8 @@ app contextT req responder = do
           putStrLn $ "got a handshake, responding with the challenge: " ++ show ch
           responder $ responseLBS status200 [(hContentType, "text/plain")] (BL.fromStrict $ C.pack $ show ch)
         (EventDetails _ _ _ ev _ _ _ _ _ _ _) -> do 
-         
+          
+          checkAndUpdateDays contextT
           when (hasLlamasAndTag ev) $ do
             currentDay <- getCurrentTime >>= return . utctDay
             
@@ -218,7 +219,7 @@ main = do
 
   putStrLn "\n"
   putStrLn "starting server"
-  putStrLn "listening on 8081\n"
+  putStrLn "listening on port 8081\n"
 
 
   run 8081 (app llamaT)

@@ -4,21 +4,70 @@
 
 module Llamabot.Message (
   LlamaMessage(..),
+  checkAndUpdateDays,
   parseLlamaPost,
   hasLlamasAndTag,
   processLlamaMessage
   ) where
 
 
+import           Control.Concurrent.STM
 
-import qualified Data.Map           as M
-import           Data.Text          as T
+import qualified Data.Map                     as M
+import           Data.Time
+import           Data.Time.Calendar.WeekDate
+import           Data.Text                    as T
 
+import           Llamabot.Context
 import           Llamabot.Database
 import           Llamabot.Response
 
 import           Slack
 
+
+-- TODO: configurable in env
+defaultDailyAllotment :: Integer
+defaultDailyAllotment = 5
+
+
+
+
+checkAndUpdateDays :: LlamaContextT -> IO ()
+checkAndUpdateDays contextT = do
+  llamaContext <- atomically $ readTVar contextT
+
+  currentDay <- getCurrentTime >>= return . utctDay
+  let contextDay = mdCurrentDay $ lcMetadata llamaContext
+  
+  if currentDay > contextDay
+    then do
+      putStrLn $ "[INFO] First Message Today: " ++ (show currentDay) ++ ", Last Message Sent " ++
+        (show contextDay)
+      putStrLn $ "[INFO] Updating currentDay Metadata and Resetting Daily Allotments"
+
+      dbConn <- dbConnect
+      resetDailyAllotments dbConn defaultDailyAllotment
+      updateMetadata dbConn $ DBMetadata currentDay
+      dbClose dbConn
+      
+      checkAndUpdateNewWeek currentDay contextDay
+
+      let newContext = llamaContext { lcMetadata = DBMetadata currentDay }
+      atomically $ writeTVar contextT newContext
+    else return ()
+
+checkAndUpdateNewWeek :: Day -> Day -> IO ()
+checkAndUpdateNewWeek currentDay previousDay = do
+  let (_, currentDayWeek, _) = toWeekDate currentDay
+      (_, previousDayWeek, _) = toWeekDate previousDay
+  if currentDayWeek > previousDayWeek
+    then do
+      putStrLn $ "[INFO] New Week Beginning - Updating Weekly Totals"
+
+      dbConn <- dbConnect
+      resetWeeklyTotals dbConn
+      dbClose dbConn
+  else return ()
 
 
 
@@ -79,7 +128,7 @@ fetchOrCreateUsers senderId recipientId = do
               Just user -> return user
               Nothing -> do
                 let newUser = DBUser { userId                 = senderId
-                                     , llamaDailyAllotment    = 5 -- TODO: configurable
+                                     , llamaDailyAllotment    = defaultDailyAllotment
                                      , llamasReceivedThisWeek = 0
                                      , llamasSentThisWeek     = 0 
                                      , llamasReceived         = 0
@@ -92,7 +141,7 @@ fetchOrCreateUsers senderId recipientId = do
                  Just user -> return user
                  Nothing -> do
                    let newUser = DBUser { userId                 = recipientId
-                                        , llamaDailyAllotment    = 5 -- TODO: configurable
+                                        , llamaDailyAllotment    = defaultDailyAllotment
                                         , llamasReceivedThisWeek = 0
                                         , llamasSentThisWeek     = 0
                                         , llamasReceived         = 0
@@ -100,7 +149,8 @@ fetchOrCreateUsers senderId recipientId = do
                                         }
                    insertUser dbConn newUser
                    return newUser
-  
+
+  dbClose dbConn
   return (sender, recipient)
 
 

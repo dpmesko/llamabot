@@ -17,6 +17,9 @@ module Llamabot.Database (
   insertMetadata,
   updateSender,
   updateRecipient,
+  updateMetadata,
+  resetDailyAllotments,
+  resetWeeklyTotals,
   selectUsers,
   selectUserById,
   selectUsersByIds,
@@ -256,6 +259,9 @@ updateSender conn update = void $ execute conn updateSenderQuery update
 updateRecipient :: Connection -> RecipientUpdate -> IO ()
 updateRecipient conn update = void $ execute conn updateRecipientQuery update
 
+updateMetadata :: Connection -> DBMetadata -> IO ()
+updateMetadata conn metadata = void $ execute conn updateMetadataQuery metadata
+
 
 selectUsers :: Connection -> IO ([DBUser])
 selectUsers conn = query_ conn "select * from users" 
@@ -291,6 +297,14 @@ selectMessages conn = query_ conn "select * from messages"
 selectMetadata :: Connection -> IO ([DBMetadata])
 selectMetadata conn = query_ conn "select * from metadata"
 
+
+resetDailyAllotments :: Connection -> Integer -> IO ()
+resetDailyAllotments conn value = void $ execute conn updateAllotmentsQuery [value]
+
+resetWeeklyTotals :: Connection -> IO ()
+resetWeeklyTotals conn = void $ execute_ conn updateWeeklyTotalsQuery
+
+------------------------ QUERY STRINGS --------------------------
 createUsersTableQuery :: Query
 createUsersTableQuery = 
   "CREATE TABLE IF NOT EXISTS users (\
@@ -375,3 +389,20 @@ updateRecipientQuery =
     \ llamasReceived = ?\
     \ WHERE userId = ?\
     \;"
+
+updateMetadataQuery :: Query
+updateMetadataQuery = 
+  "UPDATE metadata SET\
+    \ currentDay = ?;" 
+
+updateAllotmentsQuery :: Query
+updateAllotmentsQuery = 
+  "UPDATE users SET\
+    \ llamaDailyAllotment = ?\
+    \;"
+
+updateWeeklyTotalsQuery :: Query
+updateWeeklyTotalsQuery =
+  "UPDATE users SET\
+    \ llamasSentThisWeek = 0,\
+    \ llamasReceivedThisWeek = 0";
