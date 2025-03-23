@@ -18,7 +18,7 @@ executables:
     other-modules: []
     dependencies: # TODO: come back and remove unnecessary deps here
     - aeson # go?
-    - slack-api # for sure go
+    - slack-api 
     - stm
 
     - bytestring
@@ -30,11 +30,29 @@ executables:
     - http-client-tls
     - http-types
     - llamabot-core
-    - mysql-simple
     - text
     - time
     - wai
     - warp
+
+  llamabot-slash-command:
+    source-dirs: app/
+    main: SlashCommand.hs
+    other-modules: []
+    dependencies: # TODO: come back and remove unnecessary deps here
+    - aeson # go?
+
+    - bytestring
+    - hflags
+    - http-client
+    - http-client-tls
+    - http-types
+    - llamabot-core
+    - text
+    - wai
+    - warp
+    
+    - slack-api # for sure go
 
 library:
   source-dirs: src

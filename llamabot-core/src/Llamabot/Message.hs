@@ -5,6 +5,7 @@
 module Llamabot.Message (
   LlamaMessage(..),
   checkAndUpdateDays,
+  defaultDailyAllotment,
   parseLlamaPost,
   hasLlamasAndTag,
   processLlamaMessage
@@ -54,7 +55,7 @@ checkAndUpdateDays contextT = do
 
       let newContext = llamaContext { lcMetadata = DBMetadata currentDay }
       atomically $ writeTVar contextT newContext
-    else return ()
+  else return ()
 
 checkAndUpdateNewWeek :: Day -> Day -> IO ()
 checkAndUpdateNewWeek currentDay previousDay = do

@@ -23,6 +23,8 @@ module Llamabot.Database (
   selectUsers,
   selectUserById,
   selectUsersByIds,
+  sortUsersByTotalSent,
+  sortUsersByTotalReceived,
   selectChannels,
   selectMessages,
   selectMetadata
@@ -288,6 +290,20 @@ selectUsersByIds conn userIds = do
                                   Just u -> Just (uId, u)
   return $ M.fromList $ catMaybes $ Prelude.map generateUserMapEntry userIds
 
+
+sortUsersByTotalSent :: Connection -> Maybe Integer -> IO ([(Text, Integer)])
+sortUsersByTotalSent conn mLimit = 
+  case mLimit of
+    Just l -> query conn sortUsersByTotalSentLimitQuery [l]
+    Nothing -> query_ conn sortUsersByTotalSentQuery
+
+sortUsersByTotalReceived :: Connection -> Maybe Integer -> IO ([(Text, Integer)])
+sortUsersByTotalReceived conn mLimit = 
+  case mLimit of
+    Just l -> query conn sortUsersByTotalReceivedLimitQuery [l]
+    Nothing -> query_ conn sortUsersByTotalReceivedQuery
+
+
 selectChannels :: Connection -> IO ([DBChannel])
 selectChannels conn = query_ conn "select * from channels" 
 
@@ -365,6 +381,24 @@ insertMessageQuery =
     \ channelId,\
     \ date)\
     \ VALUES (?, ?, ?, ?, ?);"
+
+
+sortUsersByTotalSentLimitQuery :: Query
+sortUsersByTotalSentLimitQuery =
+  "SELECT userId, llamasSent FROM users LIMIT=? ORDER BY llamasSent DESC;"
+
+sortUsersByTotalSentQuery :: Query
+sortUsersByTotalSentQuery =
+  "SELECT userId, llamasSent FROM users ORDER BY llamasSent DESC;"
+
+sortUsersByTotalReceivedLimitQuery :: Query
+sortUsersByTotalReceivedLimitQuery =
+  "SELECT userId, llamasReceived FROM users LIMIT=? ORDER BY llamasReceived DESC;"
+
+sortUsersByTotalReceivedQuery :: Query
+sortUsersByTotalReceivedQuery =
+  "SELECT userId, llamasReceived FROM users ORDER BY llamasReceived DESC;"
+
 
 insertMetadataQuery :: Query
 insertMetadataQuery =

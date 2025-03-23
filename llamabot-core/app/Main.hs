@@ -10,14 +10,10 @@ import           Control.Concurrent
 import           Control.Concurrent.STM
 
 -- import           Control.Exception            hiding (Handler)
--- import           Control.Monad.IO.Class
 import           Control.Monad
 import           Data.Aeson
--- import qualified Data.ByteString              as B
 import qualified Data.ByteString.Char8        as C
 import qualified Data.ByteString.Lazy         as BL
--- import           Data.Coerce
--- import           Data.Either
 import           Data.Text                    as T
 import           Data.Time
 import           Data.Maybe
@@ -97,7 +93,7 @@ app contextT req responder = do
                                            , lmTs = ts ev
                                            , lmDate = currentDay
                                            }
-            _ <- forkIO $ handleLlamaResponse contextT llamaMessage 
+            void $ forkIO $ handleLlamaResponse contextT llamaMessage 
             putStrLn $ "[INFO] Llama Message Received. Handler Thread Forked, Returning 200 OK"
           
           -- the 200 response
