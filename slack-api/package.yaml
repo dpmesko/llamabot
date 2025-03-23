@@ -15,4 +15,5 @@ library:
   dependencies:
   - aeson
   - bytestring
+  - http-api-data
   - text

@@ -3,15 +3,19 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE RecordWildCards    #-}
 {-# LANGUAGE TemplateHaskell    #-}
+{-# LANGUAGE DeriveGeneric    #-}
 
 module Slack.PostMessage(
     PostMessage(..),
     PostReaction(..),
     Block(..),
+    Blocks(..),
     BlockType(..),
     TextBlock(..),
     Element(..),
     ElementType(..),
+    RichTextElement(..),
+    RichTextListStyle(..),
     Field(..)
   ) where
 
@@ -19,7 +23,7 @@ module Slack.PostMessage(
 import           Data.Aeson
 import           Data.Text                    as T
 
-
+import           GHC.Generics
 
 
 ------------------------ FIELDS ---------------------------
@@ -55,7 +59,16 @@ data Placeholder = Placeholder
   , pText :: Text
   } deriving (Eq, Show)
 
+data RichTextElement =
+    RichTextSection { rteElements :: [RichTextElement] }
+  | RichTextText { rttText :: Text }
+  | RichTextUser { rtuUserId :: Text } 
+  | RichTextList
+      { rtlStyle    :: RichTextListStyle
+      , rtlElements :: [RichTextElement]
+      } deriving (Eq, Show)
 
+data RichTextListStyle = Bullet | Ordered deriving (Eq, Show)
 
 instance ToJSON Placeholder where
   toJSON (Placeholder ty te) = object
@@ -76,30 +89,52 @@ instance ToJSON Element where
     , "initial_date" .= i
     , "placeholder" .= p
     ]
---  toJSON x = error $ "you tried to JSON encode a bad pair of element type and element body: " ++ (show x)
+
+instance ToJSON RichTextElement where
+  toJSON (RichTextSection es) = object
+    [ "type" .= String "rich_text_section"
+    , "elements" .= es
+    ]
+  toJSON (RichTextText t) = object
+    [ "type" .= String "text"
+    , "text" .= t
+    ]
+  toJSON (RichTextUser uid) = object
+    [ "type" .= String "user"
+    , "user_id" .= uid
+    ]
+  toJSON (RichTextList s es) = object
+    [ "type" .= String "rich_text_list"
+    , "style" .= s
+    , "elements" .= es
+    ]
+
+instance ToJSON RichTextListStyle where
+  toJSON Bullet = String "bullet"
+  toJSON Ordered = String "ordered"
+
 
 
 ------------------ BLOCKS ---------------------------
 data TextBlock = TextBlock
   { tbType :: Text
-  , tbEmoji :: Bool
   , tbText :: Text
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Generic)
 
 
-data BlockType = Header | Section | Actions deriving (Eq, Show)
+data BlockType = Header | Section | Actions | RichTextBlock deriving (Eq, Show)
 data Block = 
     BlockText TextBlock
   | BlockFields [Field]
   | BlockElements [Element]
+  | BlockRichText [RichTextElement]
   deriving (Eq, Show)
 
-
+data Blocks = Blocks Text [Block] deriving (Eq, Show)
 
 instance ToJSON TextBlock where
-  toJSON (TextBlock ty em te) = object
+  toJSON (TextBlock ty te) = object
     [ "type" .= ty
-    , "emoji" .= em
     , "text" .= te
     ]
 
@@ -116,9 +151,17 @@ instance ToJSON Block where
     [ "type" .= String "actions"
     , "elements" .= be
     ]
+  toJSON (BlockRichText brt) = object
+    [ "type" .= String "rich_text"
+    , "elements" .= brt
+    ]
 --  toJSON x = error $ "invalid block construction to encode as JSON: " ++ (show x)
 
-
+instance ToJSON Blocks where
+  toJSON (Blocks txt blocks) = object
+    [ "text" .= txt
+    , "blocks" .= blocks 
+    ]
 
 ------------------- the WHOLE Message -------------
 data PostMessage = PostMessage
