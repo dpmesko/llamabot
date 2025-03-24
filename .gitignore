@@ -3,5 +3,5 @@ stack.yaml.lock
 *.cabal
 .env
 token
-llamabot
-llamabot-slash-command
+scripts/executables/
+logs/
