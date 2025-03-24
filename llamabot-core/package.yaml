@@ -32,6 +32,7 @@ executables:
     - llamabot-core
     - text
     - time
+    - transformers
     - wai
     - warp
 
@@ -49,6 +50,7 @@ executables:
     - http-types
     - llamabot-core
     - text
+    - transformers
     - wai
     - warp
     
@@ -67,13 +69,16 @@ library:
     - http-client
     - http-client-tls
     - http-types
+    - monad-logger
     - mtl
     - mysql-simple
     - servant-server
     - slack-api
     - stm
+    - template-haskell
     - text
     - time
+    - transformers
     - wai
     - warp
 

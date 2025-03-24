@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings  #-}
 {-# LANGUAGE RecordWildCards    #-}
+{-# LANGUAGE TemplateHaskell    #-}
 
 
 module Llamabot.Message (
@@ -13,6 +14,7 @@ module Llamabot.Message (
 
 
 import           Control.Concurrent.STM
+import           Control.Monad.Trans.Class
 
 import qualified Data.Map                     as M
 import           Data.Time
@@ -21,6 +23,7 @@ import           Data.Text                    as T
 
 import           Llamabot.Context
 import           Llamabot.Database
+import           Llamabot.Logger
 import           Llamabot.Response
 
 import           Slack
@@ -33,41 +36,42 @@ defaultDailyAllotment = 5
 
 
 
-checkAndUpdateDays :: LlamaContextT -> IO ()
+checkAndUpdateDays :: LlamaContextT -> LoggingT IO ()
 checkAndUpdateDays contextT = do
-  llamaContext <- atomically $ readTVar contextT
+  llamaContext <- lift $ atomically $ readTVar contextT
 
-  currentDay <- getCurrentTime >>= return . utctDay
+  currentDay <- lift $ getCurrentTime >>= return . utctDay
   let contextDay = mdCurrentDay $ lcMetadata llamaContext
   
-  if currentDay > contextDay
+  if currentDay > contextDay 
     then do
-      putStrLn $ "[INFO] First Message Today: " ++ (show currentDay) ++ ", Last Message Sent " ++
-        (show contextDay)
-      putStrLn $ "[INFO] Updating currentDay Metadata and Resetting Daily Allotments"
+      $logInfoS "checkAndUpdateDays" $ T.pack $ "First Message Today: " ++ (show currentDay) ++ 
+        ", Last Message Sent " ++ (show contextDay)
+      $logInfoS "checkAndUpdateDays" "Updating currentDay Metadata and Resetting Daily Allotments"
 
-      dbConn <- dbConnect
-      resetDailyAllotments dbConn defaultDailyAllotment
-      updateMetadata dbConn $ DBMetadata currentDay
-      dbClose dbConn
-      
+      lift $ do
+        dbConn <- dbConnect
+        resetDailyAllotments dbConn defaultDailyAllotment
+        updateMetadata dbConn $ DBMetadata currentDay
+        dbClose dbConn 
       checkAndUpdateNewWeek currentDay contextDay
 
       let newContext = llamaContext { lcMetadata = DBMetadata currentDay }
-      atomically $ writeTVar contextT newContext
+      lift $ atomically $ writeTVar contextT newContext
   else return ()
 
-checkAndUpdateNewWeek :: Day -> Day -> IO ()
+checkAndUpdateNewWeek :: Day -> Day -> LoggingT IO ()
 checkAndUpdateNewWeek currentDay previousDay = do
   let (_, currentDayWeek, _) = toWeekDate currentDay
       (_, previousDayWeek, _) = toWeekDate previousDay
   if currentDayWeek > previousDayWeek
     then do
-      putStrLn $ "[INFO] New Week Beginning - Updating Weekly Totals"
+      $logInfoS "checkAndUpdateNewWeek" "New Week Beginning - Updating Weekly Totals"
 
-      dbConn <- dbConnect
-      resetWeeklyTotals dbConn
-      dbClose dbConn
+      lift $ do
+        dbConn <- dbConnect
+        resetWeeklyTotals dbConn
+        dbClose dbConn
   else return ()
 
 
