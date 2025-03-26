@@ -19,3 +19,6 @@ sudo nginx -v
 sudo cp ../nginx.conf /etc/nginx/.
 
 sudo nginx -s reload
+
+# ------------------ INSTALL HASKELL STACK -----------------------
+curl -sSL https://get.haskellstack.org/ | sh
