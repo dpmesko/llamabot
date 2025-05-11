@@ -56,6 +56,15 @@ executables:
     
     - slack-api # for sure go
 
+  recap:
+    source-dirs: app/
+    main: Recap.hs
+    other-modules: []
+    dependencies:
+      - llamabot-core
+      - time
+      - slack-api
+
 library:
   source-dirs: src
   ghc-options: -Wall -O2

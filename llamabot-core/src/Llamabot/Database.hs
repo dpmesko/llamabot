@@ -25,8 +25,12 @@ module Llamabot.Database (
   selectUsersByIds,
   sortUsersByTotalSent,
   sortUsersByTotalReceived,
+  sortUsersByTotalSentThisWeek,
+  sortUsersByTotalReceivedThisWeek,
   selectChannels,
   selectMessages,
+  selectMessagesBySenderFromDate,
+  selectMessagesByRecipientFromDate,
   selectMetadata
   ) where
 
@@ -303,12 +307,37 @@ sortUsersByTotalReceived conn mLimit =
     Just l -> query conn sortUsersByTotalReceivedLimitQuery [l]
     Nothing -> query_ conn sortUsersByTotalReceivedQuery
 
+sortUsersByTotalSentThisWeek :: Connection -> Maybe Integer -> IO ([(Text, Integer)])
+sortUsersByTotalSentThisWeek conn mLimit = 
+  case mLimit of
+    Just l -> query conn sortUsersByTotalSentThisWeekLimitQuery [l]
+    Nothing -> query_ conn sortUsersByTotalSentThisWeekQuery
+
+sortUsersByTotalReceivedThisWeek :: Connection -> Maybe Integer -> IO ([(Text, Integer)])
+sortUsersByTotalReceivedThisWeek conn mLimit = 
+  case mLimit of
+    Just l -> query conn sortUsersByTotalReceivedThisWeekLimitQuery [l]
+    Nothing -> query_ conn sortUsersByTotalReceivedThisWeekQuery
+
+
 
 selectChannels :: Connection -> IO ([DBChannel])
 selectChannels conn = query_ conn "select * from channels" 
 
 selectMessages :: Connection -> IO ([DBMessage])
 selectMessages conn = query_ conn "select * from messages"
+
+selectMessagesBySenderFromDate :: Connection -> Text -> Day -> Maybe Integer -> IO ([DBMessage])
+selectMessagesBySenderFromDate conn uid day mLimit = 
+  case mLimit of
+    Just l -> query conn selectMessagesBySenderFromDateLimitQuery (l, uid, day)
+    Nothing -> query conn selectMessagesBySenderFromDateQuery (uid, day)
+
+selectMessagesByRecipientFromDate :: Connection -> Text -> Day -> Maybe Integer -> IO ([DBMessage])
+selectMessagesByRecipientFromDate conn uid day mLimit = 
+  case mLimit of
+    Just l -> query conn selectMessagesByRecipientFromDateLimitQuery (l, uid, day)
+    Nothing -> query conn selectMessagesByRecipientFromDateQuery (uid, day)
 
 selectMetadata :: Connection -> IO ([DBMetadata])
 selectMetadata conn = query_ conn "select * from metadata"
@@ -382,6 +411,21 @@ insertMessageQuery =
     \ date)\
     \ VALUES (?, ?, ?, ?, ?);"
 
+selectMessagesBySenderFromDateLimitQuery :: Query
+selectMessagesBySenderFromDateLimitQuery =
+  "SELECT body FROM messages LIMIT=? WHERE sender=? AND date >=?" 
+
+selectMessagesBySenderFromDateQuery :: Query
+selectMessagesBySenderFromDateQuery =
+  "SELECT body FROM messages WHERE sender=? AND date >=?" 
+
+selectMessagesByRecipientFromDateLimitQuery :: Query
+selectMessagesByRecipientFromDateLimitQuery =
+  "SELECT body FROM messages LIMIT=? WHERE recipient=? AND date >=?" 
+
+selectMessagesByRecipientFromDateQuery :: Query
+selectMessagesByRecipientFromDateQuery =
+  "SELECT body FROM messages WHERE recipient=? AND date >=?" 
 
 sortUsersByTotalSentLimitQuery :: Query
 sortUsersByTotalSentLimitQuery =
@@ -398,6 +442,22 @@ sortUsersByTotalReceivedLimitQuery =
 sortUsersByTotalReceivedQuery :: Query
 sortUsersByTotalReceivedQuery =
   "SELECT userId, llamasReceived FROM users ORDER BY llamasReceived DESC;"
+
+sortUsersByTotalSentThisWeekLimitQuery :: Query
+sortUsersByTotalSentThisWeekLimitQuery =
+  "SELECT userId, llamasSentThisWeek FROM users LIMIT=? ORDER BY llamasSentThisWeek DESC;"
+
+sortUsersByTotalSentThisWeekQuery :: Query
+sortUsersByTotalSentThisWeekQuery =
+  "SELECT userId, llamasSentThisWeek FROM users ORDER BY llamasSentThisWeek DESC;"
+
+sortUsersByTotalReceivedThisWeekLimitQuery :: Query
+sortUsersByTotalReceivedThisWeekLimitQuery =
+  "SELECT userId, llamasReceivedThisWeek FROM users LIMIT=? ORDER BY llamasReceivedThisWeek DESC;"
+
+sortUsersByTotalReceivedThisWeekQuery :: Query
+sortUsersByTotalReceivedThisWeekQuery =
+  "SELECT userId, llamasReceivedThisWeek FROM users ORDER BY llamasReceivedThisWeek DESC;"
 
 
 insertMetadataQuery :: Query
