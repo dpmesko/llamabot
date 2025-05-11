@@ -107,9 +107,12 @@ app contextT req responder = do
  
 
 
+-- TODO: TODO: TODO: these should be config/CL-args
 defaultChannel :: Text
 defaultChannel = "C08GV70G1GU" -- this is the #llamalog channel in LaunchLiveNow
 
+-- generalChannel :: Text
+-- generalChannel = "C07EAAK0ZST" -- this is the #general channel in LaunchLiveNow
 
 -- TODO: should these be in the slack-api package? probably
 ephemeralMessageSlackURL :: String

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings  #-}
 
+import           Data.List
 import           Data.Time
 import           Data.Time.Calendar.WeekDate
 -- import           Data.Text
@@ -27,7 +28,15 @@ main = do
 
   dbClose conn
 
+
+  let sortByBodyLength (b1, _) (b2, _) 
+        | b1 > b2 = GT
+        | b2 > b1 = LT
+        | otherwise = EQ
+      longestSent = maximumBy sortByBodyLength messagesFromTopSender
+      longestReceived = maximumBy sortByBodyLength messagesToTopRecipient
+
   putStrLn $ "users by total sent this week: " ++ show usersByTotalSentThisWeek
   putStrLn $ "users by total recv this week: " ++ show usersByTotalReceivedThisWeek
-  putStrLn $ "top sender messages: " ++ show messagesFromTopSender
-  putStrLn $ "top recipient messages: " ++ show messagesToTopRecipient
+  putStrLn $ "top sender message: " ++ show longestSent
+  putStrLn $ "top recipient message: " ++ show longestReceived

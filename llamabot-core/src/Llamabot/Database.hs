@@ -327,13 +327,13 @@ selectChannels conn = query_ conn "select * from channels"
 selectMessages :: Connection -> IO ([DBMessage])
 selectMessages conn = query_ conn "select * from messages"
 
-selectMessagesBySenderFromDate :: Connection -> Text -> Day -> Maybe Integer -> IO ([DBMessage])
+selectMessagesBySenderFromDate :: Connection -> Text -> Day -> Maybe Integer -> IO ([(Text, Day)])
 selectMessagesBySenderFromDate conn uid day mLimit = 
   case mLimit of
     Just l -> query conn selectMessagesBySenderFromDateLimitQuery (l, uid, day)
     Nothing -> query conn selectMessagesBySenderFromDateQuery (uid, day)
 
-selectMessagesByRecipientFromDate :: Connection -> Text -> Day -> Maybe Integer -> IO ([DBMessage])
+selectMessagesByRecipientFromDate :: Connection -> Text -> Day -> Maybe Integer -> IO ([(Text, Day)])
 selectMessagesByRecipientFromDate conn uid day mLimit = 
   case mLimit of
     Just l -> query conn selectMessagesByRecipientFromDateLimitQuery (l, uid, day)
@@ -413,19 +413,19 @@ insertMessageQuery =
 
 selectMessagesBySenderFromDateLimitQuery :: Query
 selectMessagesBySenderFromDateLimitQuery =
-  "SELECT body FROM messages LIMIT=? WHERE sender=? AND date >=?" 
+  "SELECT body, date FROM messages LIMIT=? WHERE sender=? AND date >=?" 
 
 selectMessagesBySenderFromDateQuery :: Query
 selectMessagesBySenderFromDateQuery =
-  "SELECT body FROM messages WHERE sender=? AND date >=?" 
+  "SELECT body, date FROM messages WHERE sender=? AND date >=?" 
 
 selectMessagesByRecipientFromDateLimitQuery :: Query
 selectMessagesByRecipientFromDateLimitQuery =
-  "SELECT body FROM messages LIMIT=? WHERE recipient=? AND date >=?" 
+  "SELECT body, date FROM messages LIMIT=? WHERE recipient=? AND date >=?" 
 
 selectMessagesByRecipientFromDateQuery :: Query
 selectMessagesByRecipientFromDateQuery =
-  "SELECT body FROM messages WHERE recipient=? AND date >=?" 
+  "SELECT body, date FROM messages WHERE recipient=? AND date >=?" 
 
 sortUsersByTotalSentLimitQuery :: Query
 sortUsersByTotalSentLimitQuery =
